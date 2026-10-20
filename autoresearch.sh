@@ -123,7 +123,7 @@ with wandb.init(
         "num_val_docs": len(val_data),
         "num_train_eval_docs": 256,
         "jvp_directions_used": 4,
-        "jvp_directions_cached": manifest["jvp"]["directions_per_document"],
+        "cached_jvp_directions": manifest["jvp"]["directions_per_document"],
         "jvp_directions_optimized": 4,
         "batch_size": batch_size,
         "seed": 1729,
