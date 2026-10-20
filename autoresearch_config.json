@@ -1,0 +1,10 @@
+{
+  "operator": "shared",
+  "latent_width": 640,
+  "flow_layers": 6,
+  "flow_hidden_width": 768,
+  "mlp_width": 1280,
+  "state_weight": 0.001,
+  "jvp_weight": 200000,
+  "kl_weight": 1.0
+}

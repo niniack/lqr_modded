@@ -11,21 +11,24 @@ Update `steer/config/config.yaml` with the desired file paths. For concept judgi
 
 ## KAE Training
 
-`kae.train` loads aligned activation and optional JVP shards from both `train/` and `val/` in `--cache-dir`, infers the hidden width and layer transitions from `manifest.json`, and trains AIKAE rollouts from the first cached layer through every later cached layer. The objective weights raw state-rollout MSE, JVP MSE, and final-endpoint KL(teacher || student) separately. Validation runs every `--validate-every` epochs (default 1) without optimizer updates; test shards are not used. Reconstruction and latent error are diagnostics, **not** optimized losses.
+`kae.train` loads aligned activation and optional JVP shards from both `train/` and `val/` in `--cache-dir`, infers the hidden width and layer transitions from `manifest.json`, and trains AIKAE rollouts from the first cached layer through every later cached layer. The objective weights raw state-rollout MSE, JVP MSE, and final-endpoint KL(teacher || student) separately. KL and W&B teacher-head diagnostics require the cached endpoint to be the teacher's **final transformer block**; applying its head to an intermediate layer would not produce the teacher's actual logits. Validation runs every `--validate-every` epochs (default 1) without optimizer updates; test shards are not used. Reconstruction and latent error are diagnostics, **not** optimized losses.
 
 ```bash
 uv run python -m kae.train \
-  --cache-dir artifacts/cache/gemma2b-fineweb \
-  --latent_width 2304 --epochs 30 --batch-size 32 \
-  --learning_rate 1e-4 --validate-every 5 \
-  --state-weight 1.0 --jvp-weight 1.0 --kl-weight 1.0 --wandb
+  --cache-dir artifacts/cache/gemma3-270m-fineweb \
+  --latent_width 640 --epochs 5 --batch-size 32 \
+  --learning_rate 1e-4 --validate-every 1 \
+  --state-weight 1.0 --jvp-weight 1.0 --kl-weight 1.0 \
+  --checkpoint-path artifacts/checkpoints/gemma3-270m-best.pt --wandb
 ```
+
+`--checkpoint-path` retains the best validation checkpoint by overall JVP relative error when JVP targets exist, otherwise by weighted validation loss. Each improvement atomically replaces the job's checkpoint; an existing destination is refused at startup. The file contains the student `model_state_dict`, model/operator configuration, selected epoch, and validation metric, loadable with `torch.load(path, map_location="cpu", weights_only=True)`. W&B records the best epoch and score. The test split remains untouched for a single final evaluation after model selection.
 
 `--wandb` opts into the `tokae` project. Cached JVPs default to weight 1 when present (otherwise 0); `--jvp-weight 0` **removes JVP from the objective but still measures it** on cached directions for both train and validation. KL defaults to weight 1; `--kl-weight 0` disables its objective contribution, but with W&B it remains a logged diagnostic. KL training or W&B logging loads the frozen FP32 **final norm and LM head** onto the training device, not the transformer blocks. The loader transiently loads the full checkpoint on CPU, so it still needs CPU memory for the checkpoint and device memory for the vocabulary-sized head and `[batch, vocabulary]` logits. `--seed 1729` (default) fixes student initialization and the independent training-shuffle generator for comparable ablations. At initialization the W&B config records that seed, batch size, teacher and student model names, train- and validation-document counts, cached/measured/optimized JVP-direction counts, cached layers, learning rate, and all three loss weights.
 
 Each epoch logs `train/loss` and `train/learning_rate` (the rate actually used on the last optimizer update of that epoch). `--learning_rate` sets the peak rate (default `1e-4`); the optimizer warms up linearly for the first 5% of **total optimizer steps**, then follows a cosine decay to zero. W&B config records total steps and the exact warmup step count. At epochs divisible by `--validate-every`, `val/loss` uses the same weighted formula on held-out documents; the other epochs have no validation entry. Under both `train/` and `val/`, `state_mse_first` measures the first predicted layer, `state_mse/layer_<N>` each predicted layer, and `state_rollout_mse` all predicted layers. With W&B, `state_fvu_first`, `state_fvu/layer_<N>`, and `state_rollout_fvu` divide total squared error by the split-wide target variation about each layer/feature's mean. `latent_mse` and `latent_fvu` compare evolved student latents to the student's encoder applied to cached future teacher states; these moving targets are diagnostics only. `kl_divergence` compares final-endpoint logits as KL(teacher || student). Train metrics use pre-update batches; validation metrics use the model after that epoch's optimizer updates.
 
-With `--wandb`, validation epochs also evaluate the first 256 cached training documents under `torch.no_grad()` **after** all optimizer updates for that epoch. `train_eval/*` and `val/*` therefore use the same student checkpoint, unlike the pre-update `train/*` averages. `gap/{jvp_relative_error,state_rollout_fvu,latent_fvu,kl_divergence}` is validation minus this fixed training-subset evaluation; the corresponding `train_eval/*` metrics include per-layer JVP errors and state FVU. W&B config records `num_train_eval_docs`; no extra evaluations are run between validation epochs. A fixed training subset and 128 validation documents provide a diagnostic, not a guarantee of generalization.
+With `--wandb`, validation epochs also evaluate the first 256 cached training documents under `torch.no_grad()` **after** all optimizer updates for that epoch. `train_eval/*` and `val/*` therefore use the same student checkpoint, unlike the pre-update `train/*` averages. `gap/{jvp_relative_error,state_rollout_fvu,latent_fvu,kl_divergence}` is validation minus this fixed training-subset evaluation; the corresponding `train_eval/*` metrics include per-layer JVP errors and state FVU. W&B config records `num_train_eval_docs`; no extra evaluations are run between validation epochs. The fixed training subset and held-out validation split provide a diagnostic, not a guarantee of generalization.
 
 `train/reconstruction_mse` and `val/reconstruction_mse` compare `decode(encode(x))` with the cached input activation `x`; `reconstruction_fvu` divides total squared error by each split's input variation around its per-feature mean. AIKAE's invertible flow should reconstruct almost exactly without a reconstruction loss. These diagnostics require `--wandb` for train; validation computes them when a validation split exists.
 
@@ -33,9 +36,11 @@ When JVP targets are cached, both `train/` and `val/` log raw `jvp_mse`, `jvp_ms
 
 `kae/losses.py` exports `mse_loss(prediction, target)` for state, latent, JVP, or reconstruction vectors. It checks matching shapes and averages over every element; cached JVP responses have shape `[directions, batch, output_layers, hidden_width]`. Student and teacher JVPs must use the same directions and layer order.
 
-`kl_divergence_loss(student_logits, teacher_logits)` computes mean KL(teacher || student), summing over the vocabulary for each final-token distribution. The loss accepts logits, not hidden states. For Gemma2, `kae.teacher.load_teacher_head` retains the checkpoint's frozen final norm, LM head, and `final_logit_softcapping` transform. It applies them to both the KAE prediction and the cached raw final-block teacher state. Teacher logits are detached; gradients pass through the frozen head to the KAE when KL training is enabled. W&B-only KL diagnostics run under `torch.no_grad()`.
+`kl_divergence_loss(student_logits, teacher_logits)` computes mean KL(teacher || student), summing over the vocabulary for each final-token distribution. The loss accepts logits, not hidden states. For Gemma 2 and Gemma 3, `kae.teacher.load_teacher_head` retains the checkpoint's frozen final norm, LM head, and optional `final_logit_softcapping` transform. It applies them to both the KAE prediction and the cached raw final-block teacher state. Teacher logits are detached; gradients pass through the frozen head to the KAE when KL training is enabled. W&B-only KL diagnostics run under `torch.no_grad()`.
 
-Both models accept an operator module and default to a one-step `KoopmanOperator`. Use `SharedModesKoopmanOperator(latent_width, steps=n)` for shared-modal transitions.
+Both models accept an operator module and default to a one-step `KoopmanOperator`. Training's `--operator shared` (default) repeatedly applies one linear transition; `--operator layerwise` uses independent identity-initialized linear transitions for the predicted layers; `--operator shared-modes` uses per-step growth/rotation blocks in a shared learned modal basis. All three obey the same rollout and JVP interface, and the selected operator and flow dimensions are recorded in W&B config. At a fixed seed, operator initialization preserves the random state so architecture comparisons start with the same flow and augmentation weights. `LayerwiseKoopmanOperator` and `SharedModesKoopmanOperator` can also be passed directly to `AIKAE`.
+
+Setting `--latent_width` above the teacher's hidden width adds learned nonlinear observables to the latent state before applying the Koopman operator. At equal widths the flow is invertible without augmentation. Latent FVU across different widths measures different learned spaces and is not directly comparable; state FVU and teacher-response JVP error still refer to the same cached targets.
 
 ## Activation Cache
 
@@ -43,15 +48,15 @@ Both models accept an operator module and default to a one-step `KoopmanOperator
 
 ```bash
 uv run python -m kae.cache_activations \
-  --model google/gemma-2-2b \
+  --model google/gemma-3-270m \
   --dataset HuggingFaceFW/fineweb-edu \
   --dataset-config sample-10BT \
-  --train-docs 4096 --val-docs 128 --test-docs 128 \
-  --layers 14 18 --jvp-directions 4 \
-  --output-dir artifacts/cache/gemma2b-fineweb
+  --train-docs 16384 --val-docs 512 --test-docs 512 \
+  --last-layers 4 --jvp-directions 4 \
+  --output-dir artifacts/cache/gemma3-270m-fineweb
 ```
 
-`--layers START END` selects an inclusive, contiguous range of 1-based transformer-layer outputs. For `14 18`, JVP primals are the full sequence at H14; the slice runs blocks 15–18 and returns final-token responses at each endpoint. Directions are unit-norm Gaussian, with nonzero tangent only at each example’s final valid token. JVP mode reuses the teacher forward’s block arguments, masks, and positional embeddings (including Gemma 3’s global/local RoPE). It uses eager attention for forward-mode AD.
+`--last-layers 4` selects the last four transformer **blocks**, plus their input activation. Gemma 3 270M has 18 blocks: cache H14–H18 and run blocks 15–18. Gemma 3 1B has 26 blocks: cache H22–H26 and run blocks 23–26. `--layers START END` instead selects an explicit inclusive, contiguous range of 1-based outputs. JVP primals are the full sequence at the input layer; the slice returns final-token responses after each subsequent block. Directions are unit-norm Gaussian, with nonzero tangent only at each example's final valid token. JVP mode reuses the teacher forward's exact block arguments, masks, and positional embeddings (including Gemma 3's global/local RoPE), using eager attention for forward-mode AD.
 
 Cached activations are raw block outputs before the model-wide final norm. The causal-LM model, including its output head, stays loaded, but extraction calls only `model.model`; it does not compute logits. Transformers is pinned to `4.57.1` in `pyproject.toml`. Teacher compute and floating-point cache tensors use FP32.
 

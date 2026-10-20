@@ -14,7 +14,12 @@ import wandb
 
 from kae.losses import kl_divergence_loss
 from kae.metrics import EpochDiagnostics, JvpMetrics, jvp_rollout
-from kae.models import AIKAE, KoopmanOperator
+from kae.models import (
+    AIKAE,
+    KoopmanOperator,
+    LayerwiseKoopmanOperator,
+    SharedModesKoopmanOperator,
+)
 from kae.schedules import cosine_warmup_scheduler
 from kae.teacher import load_teacher_head
 
@@ -198,6 +203,7 @@ def train(
     device: torch.device | str | None = None,
     *,
     operator_steps: int = 1,
+    operator_name: str = "shared",
     state_weight: float = 1.0,
     jvp_weight: float = 0.0,
     kl_weight: float = 0.0,
@@ -206,6 +212,7 @@ def train(
     validate_every: int = 1,
     wandb_logging: bool = False,
     run_config: dict | None = None,
+    checkpoint_path: Path | None = None,
 ) -> nn.Module:
     """Train an AIKAE on weighted state, JVP, and KL losses."""
     if (
@@ -215,11 +222,26 @@ def train(
         raise ValueError("Loss weights must be nonnegative, with at least one positive")
     if validate_every < 1:
         raise ValueError("validate_every must be positive")
+    if checkpoint_path is not None:
+        if val_loader is None:
+            raise ValueError("Checkpoint selection requires validation data")
+        if checkpoint_path.exists():
+            raise FileExistsError(f"Checkpoint already exists: {checkpoint_path}")
+    operator_classes = {
+        "shared": KoopmanOperator,
+        "layerwise": LayerwiseKoopmanOperator,
+        "shared-modes": SharedModesKoopmanOperator,
+    }
+    if operator_name not in operator_classes:
+        raise ValueError(f"Unknown Koopman operator: {operator_name}")
 
+    # Operator sizes must not change the shared encoder's seeded initialization.
+    with torch.random.fork_rng(devices=[]):
+        operator = operator_classes[operator_name](latent_width, steps=operator_steps)
     surrogate_model = AIKAE(
         hidden_width=hidden_width,
         latent_width=latent_width,
-        operator=KoopmanOperator(latent_width, steps=operator_steps),
+        operator=operator,
     ).to(device)
     optimizer = Adam(surrogate_model.parameters(), lr=learning_rate)
     total_steps = epochs * len(train_loader)
@@ -242,6 +264,9 @@ def train(
             config={
                 **(run_config or {}),
                 "student_model": type(surrogate_model).__name__,
+                "koopman_operator": operator_name,
+                "flow_layers": len(surrogate_model.flow),
+                "flow_hidden_width": surrogate_model.flow[0].net[0].out_features,
                 "epochs": epochs,
                 "learning_rate": learning_rate,
                 "lr_schedule": "linear_warmup_cosine_decay",
@@ -249,6 +274,7 @@ def train(
                 "warmup_steps": warmup_steps,
                 "total_steps": total_steps,
                 "validate_every": validate_every,
+                "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
                 "num_train_eval_docs": min(256, len(train_loader.dataset))
                 if val_loader is not None
                 else 0,
@@ -268,6 +294,7 @@ def train(
         else None
     )
     layers = output_layers or list(range(1, operator_steps + 1))
+    best_val_metric = float("inf")
 
     try:
         for epoch in range(epochs):
@@ -320,6 +347,46 @@ def train(
                             metrics[f"gap/{name}"] = (
                                 metrics[f"val/{name}"] - metrics[f"train_eval/{name}"]
                             )
+            if checkpoint_path is not None and "val/loss" in metrics:
+                selection_metric = (
+                    "val/jvp_relative_error"
+                    if "val/jvp_relative_error" in metrics
+                    else "val/loss"
+                )
+                if metrics[selection_metric] < best_val_metric:
+                    best_val_metric = metrics[selection_metric]
+                    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary_path = checkpoint_path.with_name(
+                        checkpoint_path.name + ".tmp"
+                    )
+                    torch.save(
+                        {
+                            "model_state_dict": surrogate_model.state_dict(),
+                            "model_config": {
+                                "hidden_width": hidden_width,
+                                "latent_width": latent_width,
+                                "operator_steps": operator_steps,
+                                "operator": operator_name,
+                                "flow_layers": len(surrogate_model.flow),
+                                "flow_hidden_width": (
+                                    surrogate_model.flow[0].net[0].out_features
+                                ),
+                            },
+                            "epoch": epoch + 1,
+                            "selection_metric": selection_metric,
+                            "validation_metric": best_val_metric,
+                        },
+                        temporary_path,
+                    )
+                    temporary_path.replace(checkpoint_path)
+                    if run is not None:
+                        run.summary["best_epoch"] = epoch + 1
+                        run.summary["best_validation_metric"] = best_val_metric
+                    print(
+                        f"checkpoint epoch={epoch + 1} "
+                        f"{selection_metric}={best_val_metric:.6g} "
+                        f"path={checkpoint_path}"
+                    )
             if run is not None:
                 run.log({"epoch": epoch + 1, **metrics})
             print(
@@ -389,6 +456,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, required=True)
     parser.add_argument("--latent_width", type=int, required=True)
+    parser.add_argument(
+        "--operator", choices=("shared", "layerwise", "shared-modes"), default="shared"
+    )
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Peak LR after warmup")
@@ -397,6 +467,7 @@ def main() -> None:
     parser.add_argument("--jvp-weight", type=float, default=None)
     parser.add_argument("--kl-weight", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1729)
+    parser.add_argument("--checkpoint-path", type=Path)
     parser.add_argument("--device", default=None)
     parser.add_argument("--wandb", action="store_true", help="Log to the tokae W&B project")
     args = parser.parse_args()
@@ -412,6 +483,13 @@ def main() -> None:
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
     manifest = json.loads((args.cache_dir / "manifest.json").read_text())
+    if (args.kl_weight or args.wandb) and (
+        manifest["cached_layers"][-1] != manifest["num_transformer_layers"]
+    ):
+        raise ValueError(
+            "Teacher-head KL requires the cached endpoint to be the final "
+            "transformer layer; cache the last blocks instead"
+        )
     jvp_info = manifest["jvp"]
     jvp_weight = (
         (1.0 if jvp_info is not None else 0.0)
@@ -447,11 +525,13 @@ def main() -> None:
         learning_rate=args.learning_rate,
         device=device,
         operator_steps=len(manifest["cached_layers"]) - 1,
+        operator_name=args.operator,
         state_weight=args.state_weight,
         wandb_logging=args.wandb,
         jvp_weight=jvp_weight,
         kl_weight=args.kl_weight,
         output_layers=manifest["cached_layers"][1:],
+        checkpoint_path=args.checkpoint_path,
         run_config={
             "batch_size": args.batch_size,
             "seed": args.seed,

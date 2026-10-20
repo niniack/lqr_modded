@@ -28,12 +28,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-docs", type=int, required=True)
     parser.add_argument("--val-docs", type=int, required=True)
     parser.add_argument("--test-docs", type=int, required=True)
-    parser.add_argument(
+    layer_selection = parser.add_mutually_exclusive_group()
+    layer_selection.add_argument(
         "--layers",
         type=int,
         nargs=2,
         metavar=("START", "END"),
         help="Inclusive 1-based transformer-layer outputs; default all layers",
+    )
+    layer_selection.add_argument(
+        "--last-layers",
+        type=int,
+        metavar="STEPS",
+        help="Replace the last STEPS transformer blocks; cache their input and outputs",
     )
     parser.add_argument(
         "--jvp-directions",
@@ -365,7 +372,11 @@ def main() -> None:
     if num_layers != model.config.num_hidden_layers:
         raise ValueError("Decoder layer count does not match model.config.num_hidden_layers")
 
-    if args.layers is None:
+    if args.last_layers is not None:
+        if not 1 <= args.last_layers < num_layers:
+            raise ValueError("--last-layers must be between 1 and num_hidden_layers - 1")
+        start_layer, end_layer = num_layers - args.last_layers, num_layers
+    elif args.layers is None:
         start_layer, end_layer = 1, num_layers
     else:
         start_layer, end_layer = args.layers
