@@ -40,6 +40,7 @@ Thumbs.db
 # Model / ML artifacts
 ############################
 checkpoints/
+artifacts/cache/
 models/
 weights/
 *.pt

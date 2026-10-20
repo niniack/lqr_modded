@@ -16,7 +16,7 @@ device = th.device("cuda" if th.cuda.is_available() else "cpu")
 # model_name = "meta-llama/Llama-3.2-1B"
 # model_name = "google/gemma-2-2b"
 # model_name = "meta-llama/Meta-Llama-3-8B"
-model_name = "Qwen/Qwen2.5-3B"
+model_name = "Qwen/Qwen2.5-0.5B"
 
 quant_config = BitsAndBytesConfig( # QUANTIZATION
     load_in_4bit=True,          # or load_in_8bit=True
@@ -39,8 +39,8 @@ print(f"latent dim: {model.model.embed_tokens.embedding_dim}")
 
 nom = "What happens if you swallow a watermellon seed? A. you die. B. you get superpowers. C. diarrhea. Your answer: "
 inp = "Something that does not have to do with watermelons "
-steer = LQRSteering(model, tokenizer, q=100, r=0.1, qf=1000)
-k=50
+steer = LQRSteering(model, tokenizer, q=100, r=0.1, qf=1000, preserve_mem=False)
+k=1  # track_tokens documents a one-token smoke; it builds dense per-layer Jacobians.
 first_track = steer.track_tokens(nom, inp, k=k)
 print(f"Steered out: {first_track}")
 

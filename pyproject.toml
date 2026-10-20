@@ -1,0 +1,30 @@
+[project]
+name = "lqr-activation-steering"
+version = "0.1.0"
+description = "Activation steering via model-based linear optimal control"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "accelerate",
+    "bitsandbytes",
+    "datasets==4.4.2",
+    "evaluate",
+    "huggingface-hub",
+    "jinja2==3.1.6",
+    "matplotlib",
+    "nltk",
+    "numpy",
+    "pandas",
+    "protobuf",
+    "pyyaml",
+    "requests",
+    "scikit-learn",
+    "scipy",
+    "sentencepiece",
+    "statsmodels",
+    "tokenizers",
+    "torch==2.9.1",
+    "tqdm",
+    "transformers==4.57.1",
+    "wandb",
+]

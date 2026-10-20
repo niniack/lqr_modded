@@ -1,12 +1,7 @@
-import os
-import typing as t
+import argparse
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import torch
-import tqdm
-import json
 
 
 def read_csv(data_path: Path) -> pd.DataFrame:
@@ -66,8 +61,25 @@ def get_concept_score(data_path: Path, key, concept, l_list, pid=False):
         print(f"Saved results in {filename}")
 
 def main() -> None:
-    get_concept_score("0_vague_shot_eval.csv", "vague")
+    parser = argparse.ArgumentParser(
+        description="Calculate concept scores from an evaluation CSV."
+    )
+    parser.add_argument("data_path", type=Path, help="path to the evaluation CSV")
+    parser.add_argument("concept", help="concept name used in the *_q0_llm_answer column")
+    parser.add_argument(
+        "lambdas",
+        type=float,
+        nargs="+",
+        help="lambda values to score",
+    )
+    args = parser.parse_args()
 
+    get_concept_score(
+        data_path=args.data_path,
+        key="",
+        concept=args.concept,
+        l_list=args.lambdas,
+    )
 
 if __name__ == "__main__":
     main()
