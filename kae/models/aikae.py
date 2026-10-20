@@ -17,7 +17,7 @@ class AIKAE(nn.Module):
         *,
         mlp_width: int = 1280,
         flow_layers: int = 6,
-        flow_hidden_width: int = 512,
+        flow_hidden_width: int = 768,
         operator: nn.Module | None = None,
     ) -> None:
         super().__init__()
