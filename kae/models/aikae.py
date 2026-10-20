@@ -16,7 +16,7 @@ class AIKAE(nn.Module):
         latent_width: int,
         *,
         mlp_width: int = 1280,
-        flow_layers: int = 4,
+        flow_layers: int = 6,
         flow_hidden_width: int = 512,
         operator: nn.Module | None = None,
     ) -> None:
