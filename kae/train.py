@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Subset, TensorDataset
 import wandb
 
 from kae.losses import kl_divergence_loss
@@ -142,6 +142,7 @@ def validate_one_epoch(
     state_weight: float,
     jvp_weight: float,
     kl_weight: float,
+    split: str = "val",
 ) -> dict[str, float]:
     """Evaluate cached validation targets without updating the student."""
     model.eval()
@@ -181,10 +182,10 @@ def validate_one_epoch(
         example_count += batch_size
 
     if example_count == 0:
-        raise ValueError("val_loader must yield at least one batch")
-    metrics = {"val/loss": weighted_total / example_count}
-    metrics.update(diagnostics.results("val"))
-    metrics.update(jvp_metrics.results("val", targets.shape[-1]))
+        raise ValueError(f"{split}_loader must yield at least one batch")
+    metrics = {f"{split}/loss": weighted_total / example_count}
+    metrics.update(diagnostics.results(split))
+    metrics.update(jvp_metrics.results(split, targets.shape[-1]))
     return metrics
 
 
@@ -248,6 +249,9 @@ def train(
                 "warmup_steps": warmup_steps,
                 "total_steps": total_steps,
                 "validate_every": validate_every,
+                "num_train_eval_docs": min(256, len(train_loader.dataset))
+                if val_loader is not None
+                else 0,
                 "loss_weights": {
                     "state_mse": state_weight,
                     "jvp_mse": jvp_weight,
@@ -255,6 +259,14 @@ def train(
                 },
             },
         )
+    train_eval_loader = (
+        DataLoader(
+            Subset(train_loader.dataset, range(min(256, len(train_loader.dataset)))),
+            batch_size=train_loader.batch_size or 32,
+        )
+        if wandb_logging and val_loader is not None
+        else None
+    )
     layers = output_layers or list(range(1, operator_steps + 1))
 
     try:
@@ -285,6 +297,29 @@ def train(
                         kl_weight=kl_weight,
                     )
                 )
+                if train_eval_loader is not None:
+                    train_eval = validate_one_epoch(
+                        surrogate_model,
+                        train_eval_loader,
+                        device=device,
+                        output_layers=layers,
+                        teacher=teacher,
+                        state_weight=state_weight,
+                        jvp_weight=jvp_weight,
+                        kl_weight=kl_weight,
+                        split="train_eval",
+                    )
+                    metrics.update(train_eval)
+                    for name in (
+                        "jvp_relative_error",
+                        "state_rollout_fvu",
+                        "latent_fvu",
+                        "kl_divergence",
+                    ):
+                        if f"val/{name}" in metrics and f"train_eval/{name}" in metrics:
+                            metrics[f"gap/{name}"] = (
+                                metrics[f"val/{name}"] - metrics[f"train_eval/{name}"]
+                            )
             if run is not None:
                 run.log({"epoch": epoch + 1, **metrics})
             print(

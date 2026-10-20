@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from kae.models import AIKAE, KoopmanOperator
 from kae.schedules import cosine_warmup_scheduler
@@ -46,6 +46,7 @@ train_loader = DataLoader(
     generator=torch.Generator().manual_seed(1729),
 )
 val_loader = DataLoader(val_data, batch_size=32)
+train_eval_loader = DataLoader(Subset(train_data, range(256)), batch_size=32)
 model = AIKAE(2304, 2304, operator=KoopmanOperator(2304, steps=4)).cuda()
 teacher = load_teacher_head(
     "google/gemma-2-2b", "c5ebcd40d208330abc697524c919956e692655cf", "cuda"
@@ -55,7 +56,7 @@ epochs = 5
 total_steps = epochs * len(train_loader)
 scheduler = cosine_warmup_scheduler(optimizer, total_steps, math.ceil(total_steps * 0.05))
 for _ in range(epochs):
-    training = train_one_epoch(
+    train_one_epoch(
         model, train_loader, optimizer, device="cuda", output_layers=[15, 16, 17, 18],
         state_weight=1, jvp_weight=10000, kl_weight=1, teacher=teacher,
         record_diagnostics=True, scheduler=scheduler,
@@ -64,12 +65,20 @@ validation = validate_one_epoch(
     model, val_loader, device="cuda", output_layers=[15, 16, 17, 18],
     teacher=teacher, state_weight=1, jvp_weight=10000, kl_weight=1,
 )
+train_eval = validate_one_epoch(
+    model, train_eval_loader, device="cuda", output_layers=[15, 16, 17, 18],
+    teacher=teacher, state_weight=1, jvp_weight=10000, kl_weight=1,
+    split="train_eval",
+)
 for name, value in (
     ("val_jvp_relative_error", validation["val/jvp_relative_error"]),
     ("val_state_fvu", validation["val/state_rollout_fvu"]),
     ("val_latent_fvu", validation["val/latent_fvu"]),
     ("val_kl_divergence", validation["val/kl_divergence"]),
-    ("jvp_generalization_gap", validation["val/jvp_relative_error"] - training["train/jvp_relative_error"]),
+    ("jvp_generalization_gap", validation["val/jvp_relative_error"] - train_eval["train_eval/jvp_relative_error"]),
+    ("state_generalization_gap", validation["val/state_rollout_fvu"] - train_eval["train_eval/state_rollout_fvu"]),
+    ("latent_generalization_gap", validation["val/latent_fvu"] - train_eval["train_eval/latent_fvu"]),
+    ("kl_generalization_gap", validation["val/kl_divergence"] - train_eval["train_eval/kl_divergence"]),
 ):
     if not math.isfinite(value):
         raise ValueError(f"Non-finite {name}: {value}")
