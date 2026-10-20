@@ -285,6 +285,8 @@ def train(
                 },
             },
         )
+        run.define_metric("epoch")
+        run.define_metric("*", step_metric="epoch")
     train_eval_loader = (
         DataLoader(
             Subset(train_loader.dataset, range(min(256, len(train_loader.dataset)))),

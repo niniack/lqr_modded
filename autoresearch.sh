@@ -103,7 +103,12 @@ with wandb.init(
     job_type="autoresearch",
     tags=["teacher:gemma3-270m", "student:AIKAE", f"operator:{config['operator']}", "last4", "pilot5e"],
     config={
-        **config,
+        **{key: value for key, value in config.items() if not key.endswith("_weight")},
+        "loss_weights": {
+            "state_mse": loss_weights["state_weight"],
+            "jvp_mse": loss_weights["jvp_weight"],
+            "kl_divergence": loss_weights["kl_weight"],
+        },
         "teacher_model": teacher_name,
         "teacher_model_revision": teacher_revision,
         "teacher_checkpoint_path": manifest["model"],
@@ -118,6 +123,8 @@ with wandb.init(
         "num_val_docs": len(val_data),
         "num_train_eval_docs": 256,
         "jvp_directions_used": 4,
+        "jvp_directions_cached": manifest["jvp"]["directions_per_document"],
+        "jvp_directions_optimized": 4,
         "batch_size": batch_size,
         "seed": 1729,
         "epochs": epochs,
@@ -132,6 +139,8 @@ with wandb.init(
     },
     settings=wandb.Settings(init_timeout=60),
 ) as run:
+    run.define_metric("epoch")
+    run.define_metric("*", step_metric="epoch")
     print(f"ASI wandb_run_url={run.url}", flush=True)
     print("ASI model_config=" + json.dumps(config, separators=(",", ":")), flush=True)
     artifact_dir = Path("artifacts/cache/gemma3-270m-autoresearch-runs") / run.id
