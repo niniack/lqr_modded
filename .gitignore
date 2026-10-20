@@ -41,7 +41,7 @@ Thumbs.db
 ############################
 checkpoints/
 artifacts/cache/
-models/
+/models/
 weights/
 *.pt
 *.pth
