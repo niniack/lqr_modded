@@ -434,6 +434,7 @@ def main() -> None:
         "dataset": args.dataset,
         "dataset_config": args.dataset_config,
         "dataset_split": args.dataset_split,
+        "data_files": args.data_files,
         "text_column": args.text_column,
         "seed": args.seed,
         "max_length": args.max_length,

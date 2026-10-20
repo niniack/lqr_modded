@@ -14,7 +14,6 @@ import math
 from pathlib import Path
 
 import torch
-import wandb
 from torch.utils.data import DataLoader, Subset
 
 from kae.models import (
@@ -26,6 +25,7 @@ from kae.models import (
 from kae.schedules import cosine_warmup_scheduler
 from kae.teacher import load_teacher_head
 from kae.train import load_training_data, train_one_epoch, validate_one_epoch
+from kae.wandb import cache_run_config, init_run, log_epoch
 
 cache_dir = Path("artifacts/cache/autoresearch-gemma3-270m")
 manifest_bytes = (cache_dir / "manifest.json").read_bytes()
@@ -62,7 +62,7 @@ operator_classes = {
 teacher_name = "google/gemma-3-270m"
 teacher_revision = "9b0cfec892e2bc2afd938c98eabe4e4a7b1e0ca1"
 output_layers = [15, 16, 17, 18]
-epochs = 5
+epochs = 10
 batch_size = 32
 
 torch.use_deterministic_algorithms(True)
@@ -93,86 +93,85 @@ total_steps = epochs * len(train_loader)
 warmup_steps = math.ceil(total_steps * 0.05)
 scheduler = cosine_warmup_scheduler(optimizer, total_steps, warmup_steps)
 
-with wandb.init(
-    project="tokae",
-    group="gemma3-270m-last4-autoresearch",
-    name=(
-        f"gemma3-270m-last4-16k-5e-{config['operator']}"
-        f"-latent{config['latent_width']}-flow{config['flow_layers']}x{config['flow_hidden_width']}"
-    ),
-    job_type="autoresearch",
-    tags=["teacher:gemma3-270m", "student:AIKAE", f"operator:{config['operator']}", "last4", "pilot5e"],
+with init_run(
     config={
-        **{key: value for key, value in config.items() if not key.endswith("_weight")},
+        **cache_run_config(cache_dir, manifest),
+        **model_config,
+        "teacher_model": teacher_name,
+        "teacher_model_revision": teacher_revision,
+        "student_model": "AIKAE",
+        "koopman_operator": config["operator"],
+        "operator_steps": 4,
         "loss_weights": {
             "state_mse": loss_weights["state_weight"],
             "jvp_mse": loss_weights["jvp_weight"],
             "kl_divergence": loss_weights["kl_weight"],
         },
-        "teacher_model": teacher_name,
-        "teacher_model_revision": teacher_revision,
-        "teacher_checkpoint_path": manifest["model"],
-        "student_model": "AIKAE",
-        "koopman_operator": config["operator"],
-        "hidden_width": 640,
-        "cached_layers": manifest["cached_layers"],
-        "input_layer": 14,
-        "output_layers": output_layers,
-        "num_transformer_layers": 18,
         "num_train_docs": len(train_data),
         "num_val_docs": len(val_data),
         "num_train_eval_docs": 256,
-        "jvp_directions_used": 4,
-        "cached_jvp_directions": manifest["jvp"]["directions_per_document"],
-        "jvp_directions_optimized": 4,
+        "jvp_directions_optimized": 4 if loss_weights["jvp_weight"] else 0,
         "batch_size": batch_size,
         "seed": 1729,
         "epochs": epochs,
         "validate_every": 1,
         "learning_rate": 1e-4,
+        "optimizer": "Adam",
         "lr_schedule": "linear_warmup_cosine_decay",
         "warmup_fraction": 0.05,
         "warmup_steps": warmup_steps,
         "total_steps": total_steps,
-        "cache_manifest_sha256": manifest_sha,
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
     },
-    settings=wandb.Settings(init_timeout=60),
+    group="gemma3-270m-last4-autoresearch",
+    name=(
+        f"gemma3-270m-last4-16k-10e-{config['operator']}"
+        f"-latent{config['latent_width']}-flow{config['flow_layers']}x{config['flow_hidden_width']}"
+    ),
 ) as run:
-    run.define_metric("epoch")
-    run.define_metric("*", step_metric="epoch")
     print(f"ASI wandb_run_url={run.url}", flush=True)
     print("ASI model_config=" + json.dumps(config, separators=(",", ":")), flush=True)
     artifact_dir = Path("artifacts/cache/gemma3-270m-autoresearch-runs") / run.id
     artifact_dir.mkdir(parents=True, exist_ok=False)
     history = []
     for epoch in range(epochs + 1):
-        metrics = {}
+        metrics = {
+            "optimizer_step": epoch * len(train_loader),
+            "train/learning_rate": optimizer.param_groups[0]["lr"],
+        }
         if epoch:
-            metrics.update(train_one_epoch(
+            batch_metrics = train_one_epoch(
                 model, train_loader, optimizer, device="cuda", output_layers=output_layers,
                 teacher=teacher, record_diagnostics=True, scheduler=scheduler, **loss_weights,
-            ))
-        validation = validate_one_epoch(
-            model, val_loader, device="cuda", output_layers=output_layers,
-            teacher=teacher, **loss_weights,
-        )
-        train_eval = validate_one_epoch(
-            model, train_eval_loader, device="cuda", output_layers=output_layers,
-            teacher=teacher, split="train_eval", **loss_weights,
-        )
+            )
+            run.summary["training_batch_metrics"] = batch_metrics
+            metrics.update({
+                key: value for key, value in batch_metrics.items()
+                if key.startswith("train/grad_norm/") or key == "train/learning_rate"
+            })
+        with torch.random.fork_rng(devices=[]):
+            validation = validate_one_epoch(
+                model, val_loader, device="cuda", output_layers=output_layers,
+                teacher=teacher, **loss_weights,
+            )
+            train_eval = validate_one_epoch(
+                model, train_eval_loader, device="cuda", output_layers=output_layers,
+                teacher=teacher, split="train", **loss_weights,
+            )
         metrics.update(validation)
         metrics.update(train_eval)
-        for name in ("jvp_relative_error", "state_rollout_fvu", "latent_fvu", "kl_divergence"):
-            metrics[f"gap/{name}"] = validation[f"val/{name}"] - train_eval[f"train_eval/{name}"]
+        gaps = {
+            name: validation[f"val/{name}"] - train_eval[f"train/{name}"]
+            for name in ("jvp_relative_error", "state_rollout_fvu", "latent_fvu", "kl_divergence")
+        }
         if not all(math.isfinite(value) for value in metrics.values()):
             raise ValueError(f"Non-finite training or evaluation metric at epoch {epoch}")
         row = {"epoch": epoch, **metrics}
         history.append(row)
-        run.log(row, step=epoch)
+        log_epoch(run, epoch, metrics)
         print("EPOCH " + json.dumps({
             "epoch": epoch,
-            **{key: value for key, value in metrics.items() if key.startswith(("val/", "gap/"))},
+            **{key: value for key, value in metrics.items() if key.startswith(("train/", "val/"))},
         }, separators=(",", ":")), flush=True)
     (artifact_dir / "metrics.json").write_text(json.dumps(history, indent=2))
     torch.save({
@@ -193,10 +192,10 @@ with wandb.init(
         ("val_state_fvu", validation["val/state_rollout_fvu"]),
         ("val_latent_fvu", validation["val/latent_fvu"]),
         ("val_kl_divergence", validation["val/kl_divergence"]),
-        ("jvp_generalization_gap", metrics["gap/jvp_relative_error"]),
-        ("state_generalization_gap", metrics["gap/state_rollout_fvu"]),
-        ("latent_generalization_gap", metrics["gap/latent_fvu"]),
-        ("kl_generalization_gap", metrics["gap/kl_divergence"]),
+        ("jvp_generalization_gap", gaps["jvp_relative_error"]),
+        ("state_generalization_gap", gaps["state_rollout_fvu"]),
+        ("latent_generalization_gap", gaps["latent_fvu"]),
+        ("kl_generalization_gap", gaps["kl_divergence"]),
     ):
         print(f"METRIC {name}={value:.9g}")
 PY

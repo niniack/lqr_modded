@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -10,7 +11,6 @@ import torch
 from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Subset, TensorDataset
-import wandb
 
 from kae.losses import kl_divergence_loss
 from kae.metrics import EpochDiagnostics, JvpMetrics, jvp_rollout
@@ -22,6 +22,13 @@ from kae.models import (
 )
 from kae.schedules import cosine_warmup_scheduler
 from kae.teacher import load_teacher_head
+from kae.wandb import (
+    LOGGING_SCHEMA,
+    TRAIN_METRIC_DEFINITION,
+    cache_run_config,
+    init_run,
+    log_epoch,
+)
 
 
 def train_one_epoch(
@@ -194,6 +201,20 @@ def validate_one_epoch(
     return metrics
 
 
+def _save_checkpoint(path: Path, payload: dict) -> None:
+    """Publish a complete checkpoint atomically in its destination directory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        torch.save(payload, temporary_path)
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def train(
     hidden_width: int,
     latent_width: int,
@@ -213,6 +234,7 @@ def train(
     wandb_logging: bool = False,
     run_config: dict | None = None,
     checkpoint_path: Path | None = None,
+    final_checkpoint_path: Path | None = None,
 ) -> nn.Module:
     """Train an AIKAE on weighted state, JVP, and KL losses."""
     if (
@@ -220,13 +242,19 @@ def train(
         or state_weight + jvp_weight + kl_weight == 0
     ):
         raise ValueError("Loss weights must be nonnegative, with at least one positive")
-    if validate_every < 1:
-        raise ValueError("validate_every must be positive")
-    if checkpoint_path is not None:
-        if val_loader is None:
-            raise ValueError("Checkpoint selection requires validation data")
-        if checkpoint_path.exists():
-            raise FileExistsError(f"Checkpoint already exists: {checkpoint_path}")
+    if epochs < 1 or validate_every < 1:
+        raise ValueError("epochs and validate_every must be positive")
+    if checkpoint_path is not None and val_loader is None:
+        raise ValueError("Checkpoint selection requires validation data")
+    for path in (checkpoint_path, final_checkpoint_path):
+        if path is not None and path.exists():
+            raise FileExistsError(f"Checkpoint already exists: {path}")
+    if (
+        checkpoint_path is not None
+        and final_checkpoint_path is not None
+        and checkpoint_path.resolve() == final_checkpoint_path.resolve()
+    ):
+        raise ValueError("Best and final checkpoints require distinct paths")
     operator_classes = {
         "shared": KoopmanOperator,
         "layerwise": LayerwiseKoopmanOperator,
@@ -248,107 +276,130 @@ def train(
     warmup_steps = math.ceil(0.05 * total_steps)
     scheduler = cosine_warmup_scheduler(optimizer, total_steps, warmup_steps)
 
-    run = None
+    metadata = run_config or {}
+    config = {
+        **metadata,
+        "logging_schema": LOGGING_SCHEMA,
+        "train_metric_definition": TRAIN_METRIC_DEFINITION,
+        "student_model": type(surrogate_model).__name__,
+        "koopman_operator": operator_name,
+        "hidden_width": hidden_width,
+        "latent_width": latent_width,
+        "operator_steps": operator_steps,
+        "flow_layers": len(surrogate_model.flow),
+        "flow_hidden_width": surrogate_model.flow[0].net[0].out_features,
+        "parameters": sum(parameter.numel() for parameter in surrogate_model.parameters()),
+        "epochs": epochs,
+        "batch_size": train_loader.batch_size,
+        "num_train_docs": len(train_loader.dataset),
+        "num_train_eval_docs": min(256, len(train_loader.dataset)),
+        "learning_rate": learning_rate,
+        "optimizer": "Adam",
+        "lr_schedule": "linear_warmup_cosine_decay",
+        "warmup_fraction": 0.05,
+        "warmup_steps": warmup_steps,
+        "total_steps": total_steps,
+        "validate_every": validate_every,
+        "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
+        "final_checkpoint_path": str(final_checkpoint_path) if final_checkpoint_path else None,
+        "loss_weights": {
+            "state_mse": state_weight,
+            "jvp_mse": jvp_weight,
+            "kl_divergence": kl_weight,
+        },
+    }
+    config["jvp_directions_optimized"] = (
+        config.get("jvp_directions_used", 0) if jvp_weight else 0
+    )
     teacher = None
     if wandb_logging or kl_weight:
-        metadata = run_config or {}
-        teacher_name = metadata.get("teacher_model")
+        teacher_name = metadata.get("teacher_checkpoint_path") or metadata.get("teacher_model")
         if not teacher_name:
             raise ValueError(
-                "KL training or W&B diagnostics require run_config['teacher_model']"
+                "KL training or W&B diagnostics require teacher checkpoint metadata"
             )
-        teacher = load_teacher_head(teacher_name, metadata.get("teacher_model_revision"), device)
-    if wandb_logging:
-        run = wandb.init(
-            project="tokae",
-            config={
-                **(run_config or {}),
-                "student_model": type(surrogate_model).__name__,
-                "koopman_operator": operator_name,
-                "flow_layers": len(surrogate_model.flow),
-                "flow_hidden_width": surrogate_model.flow[0].net[0].out_features,
-                "epochs": epochs,
-                "learning_rate": learning_rate,
-                "lr_schedule": "linear_warmup_cosine_decay",
-                "warmup_fraction": 0.05,
-                "warmup_steps": warmup_steps,
-                "total_steps": total_steps,
-                "validate_every": validate_every,
-                "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
-                "num_train_eval_docs": min(256, len(train_loader.dataset))
-                if val_loader is not None
-                else 0,
-                "loss_weights": {
-                    "state_mse": state_weight,
-                    "jvp_mse": jvp_weight,
-                    "kl_divergence": kl_weight,
-                },
-            },
+        teacher_revision = (
+            metadata.get("teacher_checkpoint_revision")
+            if metadata.get("teacher_checkpoint_path")
+            else metadata.get("teacher_model_revision")
         )
-        run.define_metric("epoch")
-        run.define_metric("*", step_metric="epoch")
-    train_eval_loader = (
-        DataLoader(
-            Subset(train_loader.dataset, range(min(256, len(train_loader.dataset)))),
-            batch_size=train_loader.batch_size or 32,
-        )
-        if wandb_logging and val_loader is not None
-        else None
+        teacher = load_teacher_head(teacher_name, teacher_revision, device)
+    train_eval_loader = DataLoader(
+        Subset(train_loader.dataset, range(config["num_train_eval_docs"])),
+        batch_size=train_loader.batch_size or 32,
+        generator=torch.Generator().manual_seed(0),
     )
     layers = output_layers or list(range(1, operator_steps + 1))
+    model_config = {
+        "hidden_width": hidden_width,
+        "latent_width": latent_width,
+        "operator_steps": operator_steps,
+        "operator": operator_name,
+        "flow_layers": config["flow_layers"],
+        "flow_hidden_width": config["flow_hidden_width"],
+    }
     best_val_metric = float("inf")
-
+    run = None
     try:
-        for epoch in range(epochs):
-            metrics = train_one_epoch(
-                model=surrogate_model,
-                train_loader=train_loader,
-                optimizer=optimizer,
-                device=device,
-                output_layers=layers,
-                state_weight=state_weight,
-                jvp_weight=jvp_weight,
-                kl_weight=kl_weight,
-                teacher=teacher,
-                record_diagnostics=wandb_logging,
-                scheduler=scheduler,
-            )
-            if val_loader is not None and (epoch + 1) % validate_every == 0:
-                metrics.update(
-                    validate_one_epoch(
-                        surrogate_model,
-                        val_loader,
-                        device=device,
-                        output_layers=layers,
-                        teacher=teacher,
-                        state_weight=state_weight,
-                        jvp_weight=jvp_weight,
-                        kl_weight=kl_weight,
-                    )
+        if wandb_logging:
+            run = init_run(config)
+        for epoch in range(epochs + 1):
+            metrics = {
+                "optimizer_step": epoch * len(train_loader),
+                "train/learning_rate": optimizer.param_groups[0]["lr"],
+            }
+            batch_metrics = {}
+            if epoch:
+                batch_metrics = train_one_epoch(
+                    model=surrogate_model,
+                    train_loader=train_loader,
+                    optimizer=optimizer,
+                    device=device,
+                    output_layers=layers,
+                    state_weight=state_weight,
+                    jvp_weight=jvp_weight,
+                    kl_weight=kl_weight,
+                    teacher=teacher,
+                    record_diagnostics=wandb_logging,
+                    scheduler=scheduler,
                 )
-                if train_eval_loader is not None:
-                    train_eval = validate_one_epoch(
-                        surrogate_model,
-                        train_eval_loader,
-                        device=device,
-                        output_layers=layers,
-                        teacher=teacher,
-                        state_weight=state_weight,
-                        jvp_weight=jvp_weight,
-                        kl_weight=kl_weight,
-                        split="train_eval",
+                metrics["train/learning_rate"] = batch_metrics["train/learning_rate"]
+                if run is not None:
+                    # These are pre-update batch diagnostics, not checkpoint curves.
+                    run.summary["training_batch_metrics"] = batch_metrics
+            if epoch == 0 or epoch % validate_every == 0 or epoch == epochs:
+                # DataLoader iterator seeds must not perturb training's RNG/shuffle.
+                with torch.random.fork_rng(devices=[]):
+                    metrics.update(
+                        validate_one_epoch(
+                            surrogate_model,
+                            train_eval_loader,
+                            device=device,
+                            output_layers=layers,
+                            teacher=teacher,
+                            state_weight=state_weight,
+                            jvp_weight=jvp_weight,
+                            kl_weight=kl_weight,
+                            split="train",
+                        )
                     )
-                    metrics.update(train_eval)
-                    for name in (
-                        "jvp_relative_error",
-                        "state_rollout_fvu",
-                        "latent_fvu",
-                        "kl_divergence",
-                    ):
-                        if f"val/{name}" in metrics and f"train_eval/{name}" in metrics:
-                            metrics[f"gap/{name}"] = (
-                                metrics[f"val/{name}"] - metrics[f"train_eval/{name}"]
+                    if val_loader is not None:
+                        metrics.update(
+                            validate_one_epoch(
+                                surrogate_model,
+                                val_loader,
+                                device=device,
+                                output_layers=layers,
+                                teacher=teacher,
+                                state_weight=state_weight,
+                                jvp_weight=jvp_weight,
+                                kl_weight=kl_weight,
                             )
+                        )
+            metrics.update(
+                {key: value for key, value in batch_metrics.items()
+                 if key.startswith("train/grad_norm/")}
+            )
             if checkpoint_path is not None and "val/loss" in metrics:
                 selection_metric = (
                     "val/jvp_relative_error"
@@ -357,47 +408,52 @@ def train(
                 )
                 if metrics[selection_metric] < best_val_metric:
                     best_val_metric = metrics[selection_metric]
-                    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-                    temporary_path = checkpoint_path.with_name(
-                        checkpoint_path.name + ".tmp"
-                    )
-                    torch.save(
+                    _save_checkpoint(
+                        checkpoint_path,
                         {
                             "model_state_dict": surrogate_model.state_dict(),
-                            "model_config": {
-                                "hidden_width": hidden_width,
-                                "latent_width": latent_width,
-                                "operator_steps": operator_steps,
-                                "operator": operator_name,
-                                "flow_layers": len(surrogate_model.flow),
-                                "flow_hidden_width": (
-                                    surrogate_model.flow[0].net[0].out_features
-                                ),
-                            },
-                            "epoch": epoch + 1,
+                            "model_config": model_config,
+                            "run_config": config,
+                            "epoch": epoch,
+                            "metrics": metrics,
                             "selection_metric": selection_metric,
                             "validation_metric": best_val_metric,
                         },
-                        temporary_path,
                     )
-                    temporary_path.replace(checkpoint_path)
                     if run is not None:
-                        run.summary["best_epoch"] = epoch + 1
+                        run.summary["best_epoch"] = epoch
                         run.summary["best_validation_metric"] = best_val_metric
                     print(
-                        f"checkpoint epoch={epoch + 1} "
+                        f"checkpoint epoch={epoch} "
                         f"{selection_metric}={best_val_metric:.6g} "
                         f"path={checkpoint_path}"
                     )
+            if epoch == epochs and final_checkpoint_path is not None:
+                _save_checkpoint(
+                    final_checkpoint_path,
+                    {
+                        "model_state_dict": surrogate_model.state_dict(),
+                        "model_config": model_config,
+                        "run_config": config,
+                        "epoch": epoch,
+                        "metrics": metrics,
+                        "checkpoint_kind": "final",
+                    },
+                )
             if run is not None:
-                run.log({"epoch": epoch + 1, **metrics})
+                log_epoch(run, epoch, metrics)
             print(
-                f"epoch {epoch + 1}/{epochs} train_loss={metrics['train/loss']:.6g}"
+                f"epoch {epoch}/{epochs}"
+                + (f" train_loss={metrics['train/loss']:.6g}" if "train/loss" in metrics else "")
                 + (f" val_loss={metrics['val/loss']:.6g}" if "val/loss" in metrics else "")
             )
-    finally:
+    except BaseException:
         if run is not None:
-            run.finish()
+            run.finish(exit_code=1)
+        raise
+    else:
+        if run is not None:
+            run.finish(exit_code=0)
 
     return surrogate_model
 
@@ -470,6 +526,10 @@ def main() -> None:
     parser.add_argument("--kl-weight", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--checkpoint-path", type=Path)
+    parser.add_argument(
+        "--final-checkpoint-path", type=Path,
+        help="Atomically save the actual final epoch, independently of best selection",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--wandb", action="store_true", help="Log to the tokae W&B project")
     args = parser.parse_args()
@@ -534,18 +594,11 @@ def main() -> None:
         kl_weight=args.kl_weight,
         output_layers=manifest["cached_layers"][1:],
         checkpoint_path=args.checkpoint_path,
+        final_checkpoint_path=args.final_checkpoint_path,
         run_config={
+            **cache_run_config(args.cache_dir, manifest),
             "batch_size": args.batch_size,
             "seed": args.seed,
-            "teacher_model": manifest["model"],
-            "teacher_model_revision": manifest["model_revision"],
-            "num_train_docs": manifest["splits"]["train"]["documents"],
-            "num_val_docs": manifest["splits"]["val"]["documents"],
-            "cached_jvp_directions": 0 if jvp_info is None else jvp_info["directions_per_document"],
-            "jvp_directions_used": 0 if jvp_info is None else jvp_info["directions_per_document"],
-            "jvp_directions_optimized": 0 if jvp_weight == 0 else jvp_info["directions_per_document"],
-            "cached_layers": manifest["cached_layers"],
-            "latent_width": args.latent_width,
         },
     )
 
