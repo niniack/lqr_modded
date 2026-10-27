@@ -22,10 +22,13 @@ class LayerwiseKoopmanOperator(nn.Module):
         for transition in self.transitions:
             nn.init.eye_(transition.weight)
 
-    def evolve_steps(self, z: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Return the latent state after each layer-specific transition."""
+    def evolve_steps(
+        self, z: torch.Tensor, *, start_step: int = 0, stop_step: int | None = None
+    ) -> tuple[torch.Tensor, ...]:
+        """Return the remaining layer-specific transitions after ``start_step``."""
         states = []
-        for transition in self.transitions:
+        for step in range(start_step, self.steps if stop_step is None else stop_step):
+            transition = self.transitions[step]
             z = transition(z)
             states.append(z)
         return tuple(states)

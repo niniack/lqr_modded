@@ -48,6 +48,7 @@ class LQRSteering:
         self.T = len(model.model.layers)
         self.n = model.model.embed_tokens.embedding_dim
         self.m = self.n
+        self.layer_inds = frozenset(range(self.T))
 
         print(f"model device: {self.model.device}")
         self.Q = th.eye(self.n).unsqueeze(0).repeat(self.T, 1, 1).to(self.device) * q
@@ -192,6 +193,10 @@ class LQRSteering:
             )
 
     def hook_setpoint_tracking(self, layer_idx, module, input, output):
+        if layer_idx not in self.layer_inds:
+            self.X[layer_idx] = input[0][-1, -1, :]
+            return output
+
         # assume E_normed is unit vector in direction of contrastive feature
 
         if self.ALL_TOKENS:
@@ -200,7 +205,7 @@ class LQRSteering:
             if self.setpoint_type == "linear":
                 v = self.E_unit[layer_idx]
                 b_mat = self.betas[layer_idx] * th.ones([x.shape[0], x.shape[1]], device=self.device)
-                probe_mat = x @ v.T
+                probe_mat = x @ v
                 alpha = b_mat - probe_mat
                 v_mat = v.expand(x.shape[0], x.shape[1], -1)
                 e = alpha.unsqueeze(-1) * v_mat
@@ -395,9 +400,12 @@ class LQRSteering:
         output_str = self.tokenizer.decode(output.sequences[0], skip_special_tokens=True)
         return output_str
 
-    def track_setpoint(self, prompt, max_new_tokens, lmbda=1, do_sample=False, temp=1, all_tokens=False, return_tokens=False):
+    def track_setpoint(
+        self, prompt, max_new_tokens, lmbda=1, do_sample=False, temp=1,
+        all_tokens=False, return_tokens=False, *, layer_inds=None,
+    ):
         '''
-        A-LQR implementation: tracks the LFS setpoint with an LQR controller at every layer.
+        A-LQR implementation: tracks the LFS setpoint at selected intervention layers.
 
         args:
             prompt: list of text inputs
@@ -407,8 +415,16 @@ class LQRSteering:
             temp: sampling temperature, N/A if do_sample = False
             return_tokens: return generated tokens before decoding
             all_tokens: steer on all token positions (typically false)
+            layer_inds: zero-based block indices to edit; None selects all, [] selects none.
+                Keep the full E and A tensors; block indices are never renumbered.
 
         '''
+        selected = frozenset(range(self.T) if layer_inds is None else layer_inds)
+        if not selected.issubset(range(self.T)):
+            raise ValueError(f"layer_inds must be block indices in [0, {self.T}).")
+        self.layer_inds = selected
+        self.U.zero_()
+
         
         self.mode = Mode.SETPOINT
         self.setpoint_type = "linear"

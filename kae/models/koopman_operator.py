@@ -19,10 +19,12 @@ class KoopmanOperator(nn.Module):
         self.transition = nn.Linear(latent_width, latent_width, bias=False)
         nn.init.eye_(self.transition.weight)
 
-    def evolve_steps(self, z: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Return the latent state after each transition."""
+    def evolve_steps(
+        self, z: torch.Tensor, *, start_step: int = 0, stop_step: int | None = None
+    ) -> tuple[torch.Tensor, ...]:
+        """Return latent transitions from the requested absolute boundary."""
         states = []
-        for _ in range(self.steps):
+        for _ in range(start_step, self.steps if stop_step is None else stop_step):
             z = self.transition(z)
             states.append(z)
         return tuple(states)

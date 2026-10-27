@@ -61,7 +61,7 @@ class PIDSteering:
 
         self.iter = 0
 
-        self.layer_inds = []
+        self.layer_inds = frozenset(range(self.T))
 
 
     def hook_steering(self, layer_idx, module, input, output):
@@ -173,6 +173,12 @@ class PIDSteering:
 
         if layer_idx % 10 == 0:
             self.e_sum = self.e_sum * 0        
+
+        # Observe inactive blocks too: preserve PID history and layer-index reset timing.
+        if layer_idx not in self.layer_inds:
+            self.e_prev = e
+            self.X[layer_idx] = x[-1, :]
+            return output
 
         u_t = self.Kp*e + self.Ki*self.e_sum + self.Kd*(e - self.e_prev)
         # print(f"x shape: {x.shape}")
@@ -341,9 +347,12 @@ class PIDSteering:
         return output_str
 
 
-    def track_setpoint(self, prompt, max_new_tokens, lmbda=1, do_sample=False, temp=1, return_tokens=False):
+    def track_setpoint(
+        self, prompt, max_new_tokens, lmbda=1, do_sample=False, temp=1,
+        return_tokens=False, *, layer_inds=None,
+    ):
         '''
-        S-PID implementation: tracks the LFS setpoint with a PID controller at every layer.
+        S-PID implementation: observes every layer, but edits only selected layers.
 
         args:
             prompt: list of text inputs
@@ -352,8 +361,16 @@ class PIDSteering:
             do_sample: greedy decoding if False, set to True in all scripts except refusal
             temp: sampling temperature, N/A if do_sample = False
             return_tokens: return generated tokens before decoding
+            layer_inds: zero-based block indices to edit; None selects all, [] selects none.
+                Unselected blocks still update PID history and its existing reset schedule.
 
         '''
+        selected = frozenset(range(self.T) if layer_inds is None else layer_inds)
+        if not selected.issubset(range(self.T)):
+            raise ValueError(f"layer_inds must be block indices in [0, {self.T}).")
+        self.layer_inds = selected
+        self.U.zero_()
+
         
         
         self.mode = Mode.SETPOINT

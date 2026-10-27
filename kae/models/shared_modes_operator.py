@@ -66,12 +66,15 @@ class SharedModesKoopmanOperator(nn.Module):
             dim=1,
         ).flatten(0, 1)
 
-    def evolve_steps(self, z: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Return the latent state after each modal transition."""
+    def evolve_steps(
+        self, z: torch.Tensor, *, start_step: int = 0, stop_step: int | None = None
+    ) -> tuple[torch.Tensor, ...]:
+        """Return the remaining absolute-depth modal transitions."""
         lower, upper, blocks = self.operator_matrix()
         latent = self._to_modes(z, lower, upper)
         states = []
-        for block in blocks:
+        for step in range(start_step, self.steps if stop_step is None else stop_step):
+            block = blocks[step]
             latent = self._apply_block(latent, block)
             states.append(self._from_modes(latent, lower, upper))
         return tuple(states)

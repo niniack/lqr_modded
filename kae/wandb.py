@@ -1,20 +1,18 @@
 """Shared provenance and epoch-based W&B reporting for training entrypoints."""
 
-import hashlib
-import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import wandb
-from wandb.sdk.wandb_run import Run
+if TYPE_CHECKING:
+    from wandb.sdk.wandb_run import Run
 
 
-LOGGING_SCHEMA = "train-val-epoch-v2"
+LOGGING_SCHEMA = "train-val-clean-mse-epoch-v6"
 TRAIN_METRIC_DEFINITION = (
     "Post-update evaluation of the fixed first min(256, num_train_docs) training "
     "documents at the same checkpoint as validation; epoch 0 is initialization."
 )
 CORE_METRICS = (
-    "jvp_relative_error",
     "state_rollout_fvu",
     "latent_fvu",
     "kl_divergence",
@@ -23,62 +21,83 @@ CORE_METRICS = (
 )
 
 
-def cache_run_config(cache_dir: Path, manifest: dict) -> dict:
-    """Describe the immutable cache, optionally enriched by verified provenance."""
-    manifest_bytes = (cache_dir / "manifest.json").read_bytes()
-    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
-    provenance_path = cache_dir / "provenance.json"
-    provenance = json.loads(provenance_path.read_text()) if provenance_path.exists() else {}
-    if (
-        provenance.get("cache_manifest_sha256") is not None
-        and provenance["cache_manifest_sha256"] != manifest_sha256
-    ):
-        raise ValueError(f"Provenance does not match cache manifest: {provenance_path}")
-    layers = manifest["cached_layers"]
-    jvp = manifest.get("jvp")
-    directions = 0 if jvp is None else jvp["directions_per_document"]
-    config = {
-        "cache_dir": str(cache_dir.resolve()),
-        "cache_manifest_sha256": manifest_sha256,
-        "cache_manifest": manifest,
-        "cache_provenance": provenance,
-        "cache_dataset": manifest.get("dataset"),
-        "cache_dataset_config": manifest.get("dataset_config"),
-        "dataset": provenance.get("dataset", manifest.get("dataset")),
-        "dataset_config": provenance.get("dataset_config", manifest.get("dataset_config")),
-        "dataset_split": provenance.get("dataset_split", manifest.get("dataset_split")),
-        "text_column": manifest.get("text_column"),
-        "max_length": manifest.get("max_length"),
-        "data_files": manifest.get("data_files") or provenance.get("source_data_file"),
-        "source_data_sha256": provenance.get("source_data_sha256"),
-        "teacher_model": provenance.get("teacher_model", manifest["model"]),
-        "teacher_model_revision": provenance.get(
-            "teacher_model_revision",
-            provenance.get("revision", manifest.get("model_revision")),
-        ),
-        # Identity may come from provenance; loading must retain the cached weights.
-        "teacher_checkpoint_path": manifest["model"],
-        "teacher_checkpoint_revision": manifest.get("model_revision"),
-        "cached_layers": layers,
-        "input_layer": layers[0],
-        "output_layers": layers[1:],
-        "num_transformer_layers": manifest["num_transformer_layers"],
-        "hidden_width": manifest["hidden_width"],
-        "cached_jvp_directions": directions,
-        "jvp_directions_used": directions,
-        "jvp_directions_optimized": directions,
+def run_metadata(recipe, metadata, model, model_config, train_loader, reporter,
+                 total_steps, warmup_steps, *, loss_weights):
+    """Record the same configuration locally and on W&B, even when W&B is disabled."""
+    output = Path(recipe.output_dir)
+    return {
+        **metadata,
+        "logging_schema": LOGGING_SCHEMA,
+        "train_metric_definition": TRAIN_METRIC_DEFINITION,
+        "student_model": type(model).__name__,
+        "model_config": model_config,
+        "koopman_operator": recipe.operator,
+        "hidden_width": model_config["hidden_width"],
+        "latent_width": model_config["latent_width"],
+        "operator_steps": model_config["operator_steps"],
+        "parameters": sum(parameter.numel() for parameter in model.parameters()),
+        "num_train_docs": len(train_loader.dataset),
+        "num_train_eval_docs": len(train_loader.dataset.probe_dataset),
+        "optimizer": f"Muon matrix weights x{recipe.muon_lr_multiplier} + Adam biases",
+        "optimizer_recipe": {
+            "weights": {"optimizer": "Muon", "lr_multiplier": recipe.muon_lr_multiplier,
+                        "momentum": 0.95, "nesterov": True, "ns_steps": 5,
+                        "adjust_lr_fn": "match_rms_adamw"},
+            "biases": {"optimizer": "Adam", "lr_multiplier": 1.0,
+                       "betas": [0.9, 0.999], "eps": 1e-8},
+            "weight_decay": 0.0,
+        },
+        "lr_schedule_definition": "linear_warmup_cosine_decay",
+        "learning_rate_definition": "Adam base LR; actual Adam and Muon update rates are logged separately",
+        "warmup_steps": warmup_steps,
+        "total_steps": total_steps,
+        "loss_weights": loss_weights,
+        "progress_every_seconds": reporter.interval_seconds,
+        "checkpoint_path": str(output / "best.pt"),
+        "final_checkpoint_path": str(output / "final.pt"),
+        "checkpoint_selection": {"metric": "val/loss", "mode": "min"},
+        "normalization": {
+            "mode": recipe.student_normalization,
+            **model_config["normalization_fit"],
+            "external_coordinates": "raw teacher residual states before final normalization",
+            "state_objective": "plain elementwise raw-state MSE across all rollout outputs",
+            "latent_objective": "plain MSE; propagated and teacher-encoded branches both trainable",
+            "multistart_objective": "plain MSE over all later-start/end pairs equally; no propagation resets",
+        },
+        "metric_definitions": {
+            "state_rollout_mse": "raw rollout SSE / (documents * output boundaries * hidden width)",
+            "latent_mse": "latent SSE / (documents * output boundaries * latent width)",
+            "fvu": "summed SSE / (epoch-wide target variation around each feature mean + 1e-8)",
+            "kl_divergence": "KL(teacher || student) at the final endpoint, through the frozen norm and head",
+            "train": "fixed first training documents, evaluated after updates at the same checkpoint as val",
+            "val": "fixed held-out clean cache; test documents are never evaluated during training",
+        },
+        "gradient_diagnostics": {
+            "sampling": "fixed training-probe batch before each epoch's updates; epoch0 initialization",
+            "raw_norms": "per-loss L2 norms, including zero-weight losses",
+            "weighted_norms": "loss weight times raw gradient norm",
+            "cosines": "unweighted pairwise gradient cosine; zero-norm pairs omitted",
+            "combined_gradient": "train/grad_norm_pre_clip: mean update norm before clipping",
+            "gradient_clip": recipe.grad_clip,
+        },
     }
-    config.update(
-        {f"num_{split}_docs": info["documents"] for split, info in manifest["splits"].items()}
-    )
-    return config
 
 
-def init_run(config: dict, *, name: str | None = None, group: str | None = None) -> Run:
-    """Start a new-schema run with only the twelve core split curves visible."""
+def init_run(config: dict, *, name: str | None = None, group: str | None = None,
+             resume_id: str | None = None) -> "Run":
+    """Start or strictly resume an online run on the exact completed-epoch axis."""
+    import wandb
+
     run = wandb.init(
         project="tokae",
-        name=name,
+        mode="online",
+        **({"id": resume_id, "resume": "must"} if resume_id is not None else {}),
+        name=name or config.get("run_name"),
+        entity=config.get("wandb_entity"),
+        dir=config["output_dir"],
+        settings=wandb.Settings(init_timeout=30, **(
+            {"base_url": config["wandb_base_url"]} if config.get("wandb_base_url") else {}
+        )),
         group=group,
         config={
             **config,
@@ -99,14 +118,23 @@ def init_run(config: dict, *, name: str | None = None, group: str | None = None)
     return run
 
 
-def log_epoch(run: Run, epoch: int, metrics: dict) -> None:
+def log_epoch(run: "Run", epoch: int, metrics: dict) -> None:
     """Commit one checkpoint row at its exact SDK step; retain other data in summary."""
+    # A hard kill can occur after remote commit but before local resume.pt publication.
+    # Re-execute that uncommitted local epoch without sending a duplicate history row.
+    if epoch < run.step:
+        return
     history = {"epoch": epoch}
     visible = {f"{split}/{metric}" for split in ("train", "val") for metric in CORE_METRICS}
+    visible.update(key for key in metrics
+                   if key == "train/learning_rate" or key.startswith("train/learning_rate/"))
     for key, value in metrics.items():
         if key == "epoch":
             continue
         if key.startswith(("train/", "val/")) or key == "optimizer_step":
+            if key == "train/prefix_length_histogram":
+                import wandb
+                value = wandb.Histogram(np_histogram=(value["counts"], value["edges"]))
             run.define_metric(key, step_metric="epoch", hidden=key not in visible)
             history[key] = value
         else:

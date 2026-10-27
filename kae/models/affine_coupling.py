@@ -4,6 +4,14 @@ import torch
 from torch import nn
 
 
+def _normalize_condition(x: torch.Tensor) -> torch.Tensor:
+    """Normalize conditioner features while preserving differentiable statistics."""
+    values = x.float() if x.dtype in (torch.float16, torch.bfloat16) else x
+    centered = values - values.mean(dim=-1, keepdim=True)
+    variance = centered.square().mean(dim=-1, keepdim=True)
+    return (centered * torch.rsqrt(variance + 1e-5)).to(x.dtype)
+
+
 class AffineCoupling(nn.Module):
     """Transform one half of a vector while conditioning on the other half."""
 
@@ -16,7 +24,6 @@ class AffineCoupling(nn.Module):
 
         self.flip = flip
         half = width // 2
-        self.condition_norm = nn.LayerNorm(half, elementwise_affine=False)
         self.net = nn.Sequential(
             nn.Linear(half, hidden_width),
             nn.GELU(),
@@ -27,7 +34,7 @@ class AffineCoupling(nn.Module):
         nn.init.zeros_(self.net[-1].bias)
 
     def _shift_scale(self, fixed: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        shift, raw_scale = self.net(self.condition_norm(fixed)).chunk(2, dim=-1)
+        shift, raw_scale = self.net(_normalize_condition(fixed)).chunk(2, dim=-1)
         return shift, 0.5 * torch.tanh(raw_scale)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

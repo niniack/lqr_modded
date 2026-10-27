@@ -1,33 +1,21 @@
-############################
-# Python
-############################
+# Python, environments, and editor files
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *.so
 *.egg-info/
 .eggs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-############################
-# Virtual environments
-############################
 .env
-.venv
+.env.*
+.venv/
 venv/
 env/
 conda/
 .miniconda/
 .anaconda/
 .ipynb_checkpoints/
-
-
-############################
-# OS / Editor
-############################
 .DS_Store
 Thumbs.db
 .idea/
@@ -35,31 +23,30 @@ Thumbs.db
 *.swp
 *.swo
 
-
-############################
-# Model / ML artifacts
-############################
-checkpoints/
-artifacts/cache/
+# Local results: keep the small asset indexes, not the tensors or run files.
+/checkpoints/*
+!/checkpoints/index.json
+/data/activations/*
+!/data/activations/index.json
+/outputs/*
+!/outputs/index.json
+/runs/
+/artifacts/
 /models/
 weights/
+wandb/
+wandb-debug.log
+wandb-summary.json
+/steer/toxicity/tox_data/
+/steer/truthfulness/tqa_data/
+
+# Downloaded models, dataset caches, and binary research data
+.cache/
+hf_cache/
 *.pt
 *.pth
 *.ckpt
 *.safetensors
-
-############################
-# HuggingFace / datasets
-############################
-.cache/
-hf_cache/
-wandb/
-wandb-debug.log
-wandb-summary.json
-
-############################
-# Pickle / numpy / data
-############################
 *.pkl
 *.pickle
 *.npy
@@ -67,5 +54,3 @@ wandb-summary.json
 *.h5
 *.hdf5
 *.parquet
-
-
