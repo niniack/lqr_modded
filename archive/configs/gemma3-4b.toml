@@ -1,0 +1,49 @@
+# One streaming recipe. The validation cache fixes Gemma3-4B and raw30 -> raw31..34.
+validation_cache = "data/activations/gemma3-4b"
+output_dir = "runs/gemma3-4b-clean-streaming"
+dataset = "HuggingFaceFW/fineweb-edu"
+dataset_config = "sample-10BT"
+dataset_split = "train"
+dataset_revision = "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
+text_column = "text"
+
+# Each logical epoch consumes new documents from the same persistent source.
+docs_per_epoch = 32768
+epochs = 10
+batch_size = 32
+teacher_batch_size = 8
+min_truncation = 2
+teacher_precision = "bfloat16"
+
+# Existing model dimensions are unchanged; omit latent_width for no augmentation.
+architecture = "aikae"
+latent_width = 5120
+operator = "layerwise"
+student_normalization = "none"
+context_width = 0
+flow_layers = 6
+flow_hidden_width = 768
+mlp_width = 1280
+
+# Adam base peak; Muon matrix weights use the explicit multiplier.
+learning_rate = 1e-4
+muon_lr_multiplier = 1.5
+warmup_fraction = 0.05
+grad_clip = 1.0
+
+# Raw MSE conventions and existing state/KL weights are unchanged.
+# Zero-weight losses are still measured on the fixed train/validation sets.
+reconstruction_weight = 0.0
+state_weight = 0.001
+latent_weight = 0.0
+kl_weight = 2.5
+multistart_state_weight = 0.0
+multistart_latent_weight = 0.0
+
+validate_every = 1
+seed = 1729
+wandb = true
+wandb_base_url = "https://api.wandb.ai"
+wandb_entity = "nishantaswani"
+run_name = "Gemma3-4B-clean-streaming32k"
+progress_every_seconds = 60

@@ -1,0 +1,136 @@
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/dunstan/.netrc.
+wandb: Currently logged in as: nishantaswani to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run 9lfw7pq5
+wandb: Tracking run with wandb version 0.31.0
+wandb: Run data is saved locally in runs/gemma3-4b-mlp-reconstruction-pilot/wandb/run-20261028_041350-9lfw7pq5
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run Gemma3-4B-MLP-streaming4k-reconstruction
+wandb: ⭐️ View project at https://forge.coreweave.com/wandb/nishantaswani/tokae
+wandb: 🚀 View run at https://forge.coreweave.com/wandb/nishantaswani/tokae/runs/9lfw7pq5
+starting
+/home/dunstan/git/kae-steering/.venv/lib/python3.11/site-packages/torch/cuda/__init__.py:827: UserWarning: Can't initialize NVML
+  warnings.warn("Can't initialize NVML")
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:00<00:00,  2.85it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:00<00:00,  3.03it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:00<00:00,  3.00it/s]
+opening stream
+probe 0/256 docs | preparing train probe
+probe 256/256 docs | train probe ready
+0/4,096 docs | step 0/1,280 | initializing training
+epoch 0/10 | 0/4,096 docs | step 0/1,280 | epoch start
+checkpoint epoch=0 val/loss=4864.1 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 0/10 | train loss 5245 | val loss 4864.1 | val state FVU 17.76 | val latent FVU 0.3889 | val KL 52.07
+epoch 0/10 | 0/4,096 docs | step 0/1,280 | epoch complete
+epoch 1/10 | 0/4,096 docs | step 0/1,280 | epoch start
+epoch 1/10 | 1,216/4,096 docs | step 38/1,280 | loss 4932 | ETA 42m | data wait
+epoch 1/10 | 2,176/4,096 docs | step 68/1,280 | loss 5014 | ETA 41m | data wait
+epoch 1/10 | 3,200/4,096 docs | step 100/1,280 | loss 4586 | ETA 39m | data wait
+checkpoint epoch=1 val/loss=4219.78 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 1/10 | train loss 4562.9 | val loss 4219.8 | val state FVU 15.47 | val latent FVU 2.375 | val KL 8.118
+epoch 1/10 | 4,096/4,096 docs | step 128/1,280 | loss 4413 | ETA 39m | epoch complete
+epoch 2/10 | 0/4,096 docs | step 128/1,280 | loss 4413 | ETA 39m | epoch start
+epoch 2/10 | 960/4,096 docs | step 158/1,280 | loss 3786 | ETA 38m | training
+epoch 2/10 | 1,888/4,096 docs | step 187/1,280 | loss 3714 | ETA 37m | data wait
+epoch 2/10 | 2,880/4,096 docs | step 218/1,280 | loss 3682 | ETA 36m | data wait
+epoch 2/10 | 3,840/4,096 docs | step 248/1,280 | loss 3093 | ETA 35m | data wait
+checkpoint epoch=2 val/loss=2929.76 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 2/10 | train loss 3172.3 | val loss 2929.8 | val state FVU 9.569 | val latent FVU 28.79 | val KL 7.297
+epoch 2/10 | 4,096/4,096 docs | step 256/1,280 | loss 3183 | ETA 34m | epoch complete
+epoch 3/10 | 0/4,096 docs | step 256/1,280 | loss 3183 | ETA 34m | epoch start
+epoch 3/10 | 928/4,096 docs | step 285/1,280 | loss 2425 | ETA 33m | data wait
+epoch 3/10 | 1,856/4,096 docs | step 314/1,280 | loss 2471 | ETA 33m | data wait
+epoch 3/10 | 2,848/4,096 docs | step 345/1,280 | loss 2067 | ETA 31m | data wait
+epoch 3/10 | 3,808/4,096 docs | step 375/1,280 | loss 1813 | ETA 30m | data wait
+checkpoint epoch=3 val/loss=1617.56 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 3/10 | train loss 1759.1 | val loss 1617.6 | val state FVU 4.522 | val latent FVU 63.6 | val KL 5.183
+epoch 3/10 | 4,096/4,096 docs | step 384/1,280 | loss 1746 | ETA 30m | epoch complete
+epoch 4/10 | 0/4,096 docs | step 384/1,280 | loss 1746 | ETA 30m | epoch start
+epoch 4/10 | 928/4,096 docs | step 413/1,280 | loss 1489 | ETA 29m | data wait
+epoch 4/10 | 1,888/4,096 docs | step 443/1,280 | loss 1290 | ETA 28m | data wait
+epoch 4/10 | 2,848/4,096 docs | step 473/1,280 | loss 985.4 | ETA 27m | data wait
+epoch 4/10 | 3,840/4,096 docs | step 504/1,280 | loss 837.3 | ETA 26m | data wait
+checkpoint epoch=4 val/loss=725.761 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 4/10 | train loss 794.77 | val loss 725.76 | val state FVU 1.831 | val latent FVU 50.26 | val KL 3.25
+epoch 4/10 | 4,096/4,096 docs | step 512/1,280 | loss 722.3 | ETA 26m | epoch complete
+epoch 5/10 | 0/4,096 docs | step 512/1,280 | loss 722.3 | ETA 26m | epoch start
+epoch 5/10 | 928/4,096 docs | step 541/1,280 | loss 664.3 | ETA 25m | data wait
+epoch 5/10 | 1,888/4,096 docs | step 571/1,280 | loss 499.9 | ETA 24m | data wait
+epoch 5/10 | 2,848/4,096 docs | step 601/1,280 | loss 396.9 | ETA 23m | training
+epoch 5/10 | 3,808/4,096 docs | step 631/1,280 | loss 373 | ETA 22m | data wait
+checkpoint epoch=5 val/loss=315.162 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 5/10 | train loss 349.11 | val loss 315.16 | val state FVU 0.9448 | val latent FVU 31.21 | val KL 2.395
+epoch 5/10 | 4,096/4,096 docs | step 640/1,280 | loss 359.2 | ETA 22m | epoch complete
+epoch 6/10 | 0/4,096 docs | step 640/1,280 | loss 359.2 | ETA 22m | epoch start
+epoch 6/10 | 896/4,096 docs | step 668/1,280 | loss 351.5 | ETA 21m | data wait
+epoch 6/10 | 1,888/4,096 docs | step 699/1,280 | loss 262.6 | ETA 20m | training
+epoch 6/10 | 2,816/4,096 docs | step 728/1,280 | loss 267.6 | ETA 19m | training
+epoch 6/10 | 3,808/4,096 docs | step 759/1,280 | loss 241.8 | ETA 18m | data wait
+checkpoint epoch=6 val/loss=211.242 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 6/10 | train loss 235.61 | val loss 211.24 | val state FVU 0.849 | val latent FVU 18.97 | val KL 2.137
+epoch 6/10 | 4,096/4,096 docs | step 768/1,280 | loss 235.2 | ETA 17m | epoch complete
+epoch 7/10 | 0/4,096 docs | step 768/1,280 | loss 235.2 | ETA 17m | epoch start
+epoch 7/10 | 928/4,096 docs | step 797/1,280 | loss 228.1 | ETA 16m | data wait
+epoch 7/10 | 1,920/4,096 docs | step 828/1,280 | loss 212.4 | ETA 15m | data wait
+epoch 7/10 | 2,880/4,096 docs | step 858/1,280 | loss 214.8 | ETA 14m | data wait
+epoch 7/10 | 3,840/4,096 docs | step 888/1,280 | loss 204.8 | ETA 13m | data wait
+checkpoint epoch=7 val/loss=191.768 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 7/10 | train loss 213.66 | val loss 191.77 | val state FVU 0.7824 | val latent FVU 14.12 | val KL 1.899
+epoch 7/10 | 4,096/4,096 docs | step 896/1,280 | loss 225.6 | ETA 13m | epoch complete
+epoch 8/10 | 0/4,096 docs | step 896/1,280 | loss 225.6 | ETA 13m | epoch start
+epoch 8/10 | 928/4,096 docs | step 925/1,280 | loss 205.3 | ETA 12m | training
+epoch 8/10 | 1,888/4,096 docs | step 955/1,280 | loss 210.2 | ETA 11m | data wait
+epoch 8/10 | 2,848/4,096 docs | step 985/1,280 | loss 184.1 | ETA 10m | data wait
+epoch 8/10 | 3,840/4,096 docs | step 1,016/1,280 | loss 219.3 | ETA 9m | data wait
+checkpoint epoch=8 val/loss=185.39 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 8/10 | train loss 206.51 | val loss 185.39 | val state FVU 0.7561 | val latent FVU 12.95 | val KL 1.796
+epoch 8/10 | 4,096/4,096 docs | step 1,024/1,280 | loss 221.3 | ETA 9m | epoch complete
+epoch 9/10 | 0/4,096 docs | step 1,024/1,280 | loss 221.3 | ETA 9m | epoch start
+epoch 9/10 | 896/4,096 docs | step 1,052/1,280 | loss 208 | ETA 8m | data wait
+epoch 9/10 | 1,888/4,096 docs | step 1,083/1,280 | loss 211.3 | ETA 7m | data wait
+epoch 9/10 | 2,816/4,096 docs | step 1,112/1,280 | loss 197.4 | ETA 6m | data wait
+epoch 9/10 | 3,808/4,096 docs | step 1,143/1,280 | loss 199.5 | ETA 5m | data wait
+checkpoint epoch=9 val/loss=183.412 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 9/10 | train loss 204.02 | val loss 183.41 | val state FVU 0.7479 | val latent FVU 12.7 | val KL 1.75
+epoch 9/10 | 4,096/4,096 docs | step 1,152/1,280 | loss 204.9 | ETA 5m | epoch complete
+epoch 10/10 | 0/4,096 docs | step 1,152/1,280 | loss 204.9 | ETA 5m | epoch start
+epoch 10/10 | 896/4,096 docs | step 1,180/1,280 | loss 206.8 | ETA 4m | data wait
+epoch 10/10 | 1,888/4,096 docs | step 1,211/1,280 | loss 207.7 | ETA 3m | source read
+epoch 10/10 | 2,816/4,096 docs | step 1,240/1,280 | loss 201.1 | ETA 2m | data wait
+epoch 10/10 | 3,840/4,096 docs | step 1,272/1,280 | loss 210.3 | ETA 1m | data wait
+checkpoint epoch=10 val/loss=183.137 path=runs/gemma3-4b-mlp-reconstruction-pilot/best.pt
+epoch 10/10 | train loss 203.65 | val loss 183.14 | val state FVU 0.7468 | val latent FVU 12.66 | val KL 1.742
+epoch 10/10 | 4,096/4,096 docs | step 1,280/1,280 | loss 179.3 | ETA 0m | epoch complete
+epoch 10/10 | 4,096/4,096 docs | step 1,280/1,280 | loss 179.3 | ETA 0m | complete
+wandb: updating run metadata
+wandb: uploading wandb-summary.json; uploading config.yaml; uploading output.log
+wandb: uploading config.yaml
+wandb: uploading history steps 10-10, summary, console lines 88-91
+wandb: 
+wandb: Run history:
+wandb:                                                             epoch ▁▂▂▃▄▅▅▆▇▇█
+wandb:                                                    optimizer_step ▁▂▂▃▄▅▅▆▇▇█
+wandb:                                              train/documents_seen ▁▂▂▃▄▅▅▆▇▇█
+wandb:             train/grad_cosine/kl_divergence_vs_latent_mse/encoder ▁▁▂▆▃▄▇█▅▄▆
+wandb:            train/grad_cosine/kl_divergence_vs_latent_mse/operator ▁▁▃▇▇▇▆█▄▂▆
+wandb:               train/grad_cosine/kl_divergence_vs_latent_mse/total ▁▁▄▇▄▅▇█▅▃▆
+wandb:  train/grad_cosine/kl_divergence_vs_multistart_latent_mse/encoder ▁▁▁▃▂▂▅▆▄▄█
+wandb: train/grad_cosine/kl_divergence_vs_multistart_latent_mse/operator ▆▆▁▃▇▇█▇███
+wandb:    train/grad_cosine/kl_divergence_vs_multistart_latent_mse/total ▃▃▁▃▄▄▆▆▅▅█
+wandb:   train/grad_cosine/kl_divergence_vs_multistart_state_mse/decoder ▃▃▁▅█▆▄▃▃▃▃
+wandb:                                                              +146 ...
+wandb: 
+wandb: Run summary:
+wandb:                            best_epoch 10
+wandb:                best_validation_metric 183.13717
+wandb:                                 epoch 10
+wandb:      generalization_gap/kl_divergence -0.58743
+wandb:         generalization_gap/latent_fvu 1.09253
+wandb:               generalization_gap/loss -20.5102
+wandb: generalization_gap/reconstruction_fvu 0.02803
+wandb:  generalization_gap/state_rollout_fvu 0.0311
+wandb:                        optimizer_step 1280
+wandb:                      selection_metric val/loss
+wandb:                                  +154 ...
+wandb: 
+wandb: 🚀 View run Gemma3-4B-MLP-streaming4k-reconstruction at: https://forge.coreweave.com/wandb/nishantaswani/tokae/runs/9lfw7pq5
+wandb: ⭐️ View project at: https://forge.coreweave.com/wandb/nishantaswani/tokae
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: runs/gemma3-4b-mlp-reconstruction-pilot/wandb/run-20261028_041350-9lfw7pq5/logs
