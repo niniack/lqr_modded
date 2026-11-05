@@ -54,3 +54,7 @@ hf_cache/
 *.h5
 *.hdf5
 *.parquet
+
+# Other
+.claude
+_archive
