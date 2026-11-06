@@ -23,9 +23,23 @@ Thumbs.db
 *.swp
 *.swo
 
-# Local experiment results and downloaded weights
+# Publish small review assets; keep original runs, caches, and checkpoints local.
 /runs/
-/artifacts/
+/artifacts/*
+!/artifacts/*/
+/artifacts/*/*
+!/artifacts/*/*/
+/artifacts/*/*/*
+!/artifacts/*/*/review/
+!/artifacts/*/operators/index.json
+/artifacts/*/*/review/**/cells/
+/artifacts/*/*/review/**/unjudged.csv
+/artifacts/*/*/review/**/judge_cache.csv
+/artifacts/*/*/review/**/results.csv.gz
+/artifacts/tinystories-28m/
+/artifacts/*/00_test_load/
+/artifacts/*/01_concept_direction_steering/
+*.tmp
 /models/
 
 # Downloaded models, dataset caches, and binary research data

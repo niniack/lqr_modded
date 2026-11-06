@@ -6,7 +6,7 @@ import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from tqdm.auto import tqdm
 
-from .model import LayerInputs, blocks
+from .data import LayerInputs
 
 _LAYER_KWARGS = ("attention_mask", "position_ids", "position_embeddings")
 
@@ -26,7 +26,7 @@ def efficient_mean_jacobian(model, tokenizer, prompts, *, max_ctx=32, chunk_size
     jacrev, and math attention during differentiation; nominal model forwards keep
     their normal attention backend. chunk_size batches output derivatives, not prompts.
     """
-    layers = blocks(model)
+    layers = model.model.layers
     recorded = []
     for prompt in tqdm(prompts, desc="Prompt states"):
         ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_ctx).to(model.device)
@@ -38,7 +38,7 @@ def efficient_mean_jacobian(model, tokenizer, prompts, *, max_ctx=32, chunk_size
         grab = layers[0].register_forward_pre_hook(grab_kwargs, with_kwargs=True)
         try:
             with LayerInputs(model) as record, torch.no_grad():
-                model.base_model(**ids, use_cache=False)
+                model.model(**ids, use_cache=False)
         finally:
             grab.remove()
         recorded.append(([state[0].float().cpu() for state in record.states[:-1]], kwargs))

@@ -1,0 +1,24 @@
+{
+  "model": "Qwen/Qwen3-4B",
+  "source_commit": "6c2e5b9",
+  "files": [
+    {
+      "path": "E_football_n200_seed0.pt",
+      "bytes": 380555,
+      "sha256": "556adf87435a3f2ce744654a200538881a8b890b8a79cbf70a8d03d9e132a9e3",
+      "source": "artifacts/qwen3-4b/01_concept_direction_steering/E_football_n200_seed0.pt"
+    },
+    {
+      "path": "A_football_n50_ctx32_seed0.pt",
+      "bytes": 943720238,
+      "sha256": "c35631b7429ea3af430166eba24dde9f6c3a955e81ecd3177ba2d65e7c52d03e",
+      "source": "artifacts/qwen3-4b/02_qwen3_model_ablation/A_football_n50_ctx32_seed0.pt"
+    },
+    {
+      "path": "DMD_football_n200_seed0_q0.1_r10_qf0.1.pt",
+      "bytes": 89465355,
+      "sha256": "a5232b0669bf3aa482454b388bb507aa3f4d3060fc2c46eb21b67683ddf76424",
+      "source": "artifacts/qwen3-4b/04_linear_prediction/steering_dmd_football.pt"
+    }
+  ]
+}
