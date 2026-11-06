@@ -94,10 +94,3 @@ def build_judge(device_map="cuda:0", batch_size=32):
         return [verdicts[response] for response in responses]
 
     return judge
-
-
-def repetition(text, n=4):
-    """Fraction of word n-grams that repeat an earlier n-gram in the same text."""
-    words = text.split()
-    grams = [tuple(words[i:i + n]) for i in range(len(words) - n + 1)]
-    return 1 - len(set(grams)) / len(grams) if grams else 0.0

@@ -1,39 +1,17 @@
 [project]
 name = "kae-steering"
 version = "0.1.0"
-description = "Streaming Koopman surrogates for Gemma activations"
-readme = "README.md"
+description = "A-LQR activation steering and linear prediction of transformer states"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "accelerate",
-    "datasets",
-    "huggingface-hub",
-    "jinja2==3.1.6",
-    "kooplearn==2.0.3",
     "matplotlib",
     "numpy",
-    "protobuf",
-    "pyarrow",
-    "rich",
-    "sentencepiece",
-    "statsmodels>=0.15.0",
+    "pandas",
     "torch",
     "tqdm",
     "transformers",
-    "typical-ai>=0.1.1",
-    "wandb",
 ]
 
 [dependency-groups]
-# Original A-LQR/S-PID scripts under steer/; not needed for KAE training.
-baseline = [
-    "bitsandbytes",
-    "evaluate",
-    "nltk",
-    "pandas",
-    "pyyaml",
-    "requests",
-    "scikit-learn",
-    "scipy",
-    "statsmodels",
-]
+dev = ["ipykernel", "nbclient", "pytest"]

@@ -1,11 +1,10 @@
-"""LQR activation steering with linear block models.
+"""A-LQR and measured-drift activation steering.
 
-model         load the model, record the state entering each block
-concepts      sentence CSV, concept direction E
-jacobian      mean_jacobian and opt-in efficient_mean_jacobian (chunked jacrev)
-dmd           clean-state DMD of each block
-steering      Riccati gains, LQRSteering, nominal-reference DriftLQRSteering, sampling
-trace         steered vs unsteered replay of sampled text, metrics, model errors
-steering_dmd  DMD fitted on steering deviations
-judge         Granite judge and a repetition score
+model      model loading and block-input recording
+concepts   sentence sampling and contrastive concept directions
+jacobian   chunked mean block Jacobians
+steering   Riccati gains, activation controllers, and sampling
+trace      completion replay and steering metrics
+judge      Granite concept and coherence judgments
+linear_prediction  fixed-push replay, nominal JVPs, steering DMD, and grading
 """

@@ -28,12 +28,6 @@ def load_concept_prompts(concept, sample_size=200, csv_path=SENTENCES_CSV):
     return random.sample(target, sample_size), random.sample(background, sample_size)
 
 
-def load_mixed_prompts(sample_size, seed=0, csv_path=SENTENCES_CSV):
-    """Unique sentences across all concepts, sampled without touching the global RNG."""
-    sentences = list(dict.fromkeys(row["sentence"] for row in _rows(csv_path)))
-    return random.Random(seed).sample(sentences, sample_size)
-
-
 def concept_direction(model, tokenizer, concept, sample_size=200, batch_size=8):
     """E (L + 1, hidden): mean last-token state of target minus background sentences."""
     target, background = load_concept_prompts(concept, sample_size)

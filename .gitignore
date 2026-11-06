@@ -23,22 +23,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# Local results: keep the small asset indexes, not the tensors or run files.
-/checkpoints/*
-!/checkpoints/index.json
-/data/activations/*
-!/data/activations/index.json
-/outputs/*
-!/outputs/index.json
+# Local experiment results and downloaded weights
 /runs/
 /artifacts/
 /models/
-weights/
-wandb/
-wandb-debug.log
-wandb-summary.json
-/steer/toxicity/tox_data/
-/steer/truthfulness/tqa_data/
 
 # Downloaded models, dataset caches, and binary research data
 .cache/
@@ -57,4 +45,3 @@ hf_cache/
 
 # Other
 .claude
-_archive

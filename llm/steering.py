@@ -33,16 +33,18 @@ class LQRSteering:
     """A-LQR: after block l, push the last token by u_l = (lmbda ||E_l|| - v_l^T x_l) K_l v_l.
 
     x_l is the token's state entering block l and v_l = E_l / ||E_l||. Only K_l v_l is
-    needed, so the full gain matrices are never stored. With every = m, only every m-th steered
-    block measures and pushes (sparse actuation).
+    needed, so the full gain matrices are never stored. steer_last_n_layers restricts actuation
+    to the final N blocks; every = m selects every m-th block within that suffix.
     """
 
-    def __init__(self, model, A, E, q, r, qf, steer_last_n_layers=None, every=1):
+    def __init__(self, model, A, E, q, r, qf, every=1, steer_last_n_layers=None):
         self.model = model
         self.layers = list(blocks(model))
         num_layers = len(self.layers)
-        count = num_layers if steer_last_n_layers is None else steer_last_n_layers
-        self.steered = range(num_layers - count, num_layers, every)
+        if steer_last_n_layers is not None and not 1 <= steer_last_n_layers <= num_layers:
+            raise ValueError(f"steer_last_n_layers must be between 1 and {num_layers}")
+        start = 0 if steer_last_n_layers is None else num_layers - steer_last_n_layers
+        self.steered = range(start, num_layers, every)
         self.size = E.float().norm(dim=-1)
         self.v = E.float() / self.size.clamp_min(1e-12)[:, None]
         self.gain = torch.empty(num_layers, E.shape[-1])
@@ -95,10 +97,11 @@ class DriftLQRSteering(LQRSteering):
     actuated blocks. Evaluate replay metrics before reusing/changing the controller.
     """
 
-    def __init__(self, model, nominal, A, E, q, r, qf, drift_weight=0.0, **kwargs):
+    def __init__(self, model, nominal, A, E, q, r, qf, drift_weight=0.0, every=1,
+                 steer_last_n_layers=None):
         if nominal is model or nominal.base_model is model.base_model:
             raise ValueError("nominal must be a separate, unsteered model instance")
-        super().__init__(model, A, E, q, r, qf, **kwargs)
+        super().__init__(model, A, E, q, r, qf, every=every, steer_last_n_layers=steer_last_n_layers)
         self.nominal = nominal
         self.nominal_layers = list(blocks(nominal))
         if len(self.nominal_layers) != len(self.layers):
@@ -181,7 +184,7 @@ class DriftLQRSteering(LQRSteering):
                 handle.remove()
             self._active = False
             self._cache = None
-            # Keep replay reference states for completion_metrics()/model_errors().
+            # Keep replay reference states for completion_metrics().
 
 
 @torch.inference_mode()
