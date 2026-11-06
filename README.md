@@ -76,7 +76,7 @@ The bundled caches are not needed to read the notebooks or regenerate their figu
 
 ## Provenance and checks
 
-The implementation that produced the saved results is frozen at **`6c2e5b9`**, tag **`pre-review-cleanup`**, branch **`archive/pre-review-cleanup`**. Each published run's `config.json` identifies the original CSV and its SHA-256. Publication adds consistent condition columns and zero-valued unsteered deviation metrics; it does not regenerate or rejudge the expensive run.
+The implementation that produced the saved results is frozen at **`6c2e5b9`**, tag **`pre-review-cleanup`**. Each published run's `config.json` identifies the original CSV and its SHA-256. Publication adds consistent condition columns and zero-valued unsteered deviation metrics; it does not regenerate or rejudge the expensive run.
 
 ```bash
 uv run pytest -q tests/test_basics.py
