@@ -1,6 +1,6 @@
 {
   "settings": {
-    "notebook": "02_qwen3_model_ablation",
+    "notebook": "01_qwen3_model_ablation",
     "model_name": "Qwen/Qwen3-4B",
     "concept": "football",
     "prompt": "Once upon a time",
@@ -16,21 +16,17 @@
       4.0
     ],
     "r_values": [
+      0.1,
+      1.0,
       10.0
     ],
     "last_n": [
       null
     ],
-    "every": [
-      1,
-      2,
-      3,
-      4
-    ],
     "operators": [
       "Identity",
-      "Mean Jacobian",
-      "Random"
+      "Random",
+      "Mean Jacobian"
     ],
     "drift_weights": [
       0.0
@@ -48,21 +44,13 @@
     "top_p": 0.95,
     "generation_batch": 100,
     "trace_batch": 100,
+    "record_layer_actuation": true,
     "judge_batch": 128,
     "judge_chunk": 2048,
     "dtype": "auto",
     "device_map": "auto",
-    "run_name": null
+    "run_name": "football_r_sweep_n100"
   },
   "layers": 36,
-  "dtype": "torch.bfloat16",
-  "source_commit": "6c2e5b9",
-  "upstream_commit": "c2e0c8450797e0dc234b2c53475267a2cfb2457a",
-  "source_results": {
-    "path": "artifacts/qwen3-4b/02_qwen3_model_ablation/ablation_football.csv",
-    "bytes": 5166191,
-    "sha256": "90e501118de1e2be96eca3e68acb22484e1adf1f9deed1533ee4e8e5af8b01bd"
-  },
-  "scope": "Repeated stochastic continuations of one prefix; not distinct prompts.",
-  "publication_normalization": "Uniform condition columns; unsteered every=0 and deviation metrics=0. Original CSV preserved at source_results.path."
+  "dtype": "torch.bfloat16"
 }

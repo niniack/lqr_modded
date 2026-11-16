@@ -1,0 +1,56 @@
+{
+  "settings": {
+    "notebook": "01_qwen3_model_ablation",
+    "model_name": "Qwen/Qwen3-4B",
+    "concept": "dog",
+    "prompt": "Once upon a time",
+    "trials": 100,
+    "lambdas": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      2.5,
+      3.0,
+      3.5,
+      4.0
+    ],
+    "r_values": [
+      0.1,
+      1.0,
+      10.0
+    ],
+    "last_n": [
+      null
+    ],
+    "operators": [
+      "Identity",
+      "Random",
+      "Mean Jacobian"
+    ],
+    "drift_weights": [
+      0.0
+    ],
+    "q": 0.1,
+    "qf": 0.1,
+    "seed": 0,
+    "random_seed": 0,
+    "direction_samples": 200,
+    "jacobian_samples": 50,
+    "max_ctx": 32,
+    "direction_batch": 8,
+    "max_new_tokens": 96,
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "generation_batch": 100,
+    "trace_batch": 100,
+    "record_layer_actuation": true,
+    "judge_batch": 128,
+    "judge_chunk": 2048,
+    "dtype": "auto",
+    "device_map": "auto",
+    "run_name": "dog_r_sweep_n100"
+  },
+  "layers": 36,
+  "dtype": "torch.bfloat16"
+}

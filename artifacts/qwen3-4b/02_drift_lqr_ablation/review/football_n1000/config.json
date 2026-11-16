@@ -1,0 +1,67 @@
+{
+  "settings": {
+    "notebook": "02_drift_lqr_ablation",
+    "model_name": "Qwen/Qwen3-4B",
+    "concept": "football",
+    "prompt": "Once upon a time",
+    "trials": 1000,
+    "lambdas": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "r_values": [
+      1.0,
+      10.0
+    ],
+    "last_n": [
+      4,
+      8,
+      null
+    ],
+    "operators": [
+      "Identity",
+      "Mean Jacobian",
+      "Random"
+    ],
+    "drift_weights": [
+      0.0,
+      2.0
+    ],
+    "q": 0.1,
+    "qf": 0.1,
+    "seed": 0,
+    "random_seed": 0,
+    "direction_samples": 200,
+    "jacobian_samples": 50,
+    "max_ctx": 32,
+    "direction_batch": 8,
+    "max_new_tokens": 96,
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "generation_batch": 500,
+    "trace_batch": 100,
+    "judge_batch": 256,
+    "judge_chunk": 2048,
+    "dtype": "auto",
+    "device_map": "auto",
+    "record_layer_actuation": false,
+    "run_name": null
+  },
+  "layers": 36,
+  "dtype": "torch.bfloat16",
+  "source_commit": "6c2e5b9",
+  "upstream_commit": "c2e0c8450797e0dc234b2c53475267a2cfb2457a",
+  "source_results": {
+    "path": "artifacts/qwen3-4b/03_drift_lqr_ablation/football_n1000/results.csv",
+    "bytes": 223427999,
+    "sha256": "4eed74034c8da6ff746c368efa8caa7a40c42651a651dcf57e368930fedd5545"
+  },
+  "scope": "Repeated stochastic continuations of one prefix; not distinct prompts.",
+  "publication_normalization": "Current contiguous-layer condition schema; unsteered deviation metrics=0. Original completion values and judgments retained in results.csv.gz; source_results records historical provenance, not a required local file. Settings select the review operators; summaries and matched tables contain only those operators and the unsteered baseline. The raw results retain the full original run."
+}

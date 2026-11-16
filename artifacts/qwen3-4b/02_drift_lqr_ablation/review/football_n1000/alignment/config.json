@@ -1,6 +1,7 @@
 {
-  "settings": {
-    "notebook": "03_drift_lqr_ablation",
+  "source_sha256": "32f80be0d4a94c4538420dc4054951d57aace912d622da486d47bfac32d30c60",
+  "sweep": {
+    "notebook": "02_drift_lqr_ablation",
     "model_name": "Qwen/Qwen3-4B",
     "concept": "football",
     "prompt": "Once upon a time",
@@ -24,14 +25,10 @@
       8,
       null
     ],
-    "every": [
-      1
-    ],
     "operators": [
       "Identity",
       "Mean Jacobian",
-      "Random",
-      "Steering DMD"
+      "Random"
     ],
     "drift_weights": [
       0.0,
@@ -50,21 +47,12 @@
     "top_p": 0.95,
     "generation_batch": 500,
     "trace_batch": 100,
+    "record_layer_actuation": false,
     "judge_batch": 256,
     "judge_chunk": 2048,
     "dtype": "auto",
     "device_map": "auto",
     "run_name": null
   },
-  "layers": 36,
-  "dtype": "torch.bfloat16",
-  "source_commit": "6c2e5b9",
-  "upstream_commit": "c2e0c8450797e0dc234b2c53475267a2cfb2457a",
-  "source_results": {
-    "path": "artifacts/qwen3-4b/03_drift_lqr_ablation/football_n1000/results.csv",
-    "bytes": 223427999,
-    "sha256": "4eed74034c8da6ff746c368efa8caa7a40c42651a651dcf57e368930fedd5545"
-  },
-  "scope": "Repeated stochastic continuations of one prefix; not distinct prompts.",
-  "publication_normalization": "Uniform condition columns; unsteered every=0 and deviation metrics=0. Original CSV preserved at source_results.path."
+  "protocol": "Prompt and saved completion tokenized separately; visible completion tokens only. Original token IDs, stripped whitespace, and special tokens are unavailable."
 }

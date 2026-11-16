@@ -13,24 +13,23 @@ from steer.steering import LQRSteering as UpstreamLQRSteering, Mode
 from .data import LayerInputs
 
 
-def riccati(A, q, r, qf, device="cpu", actuated=None):
-    """Stream float64 LQR gains in descending layer order.
+def riccati(A, q, r, qf, device="cpu", start_layer=0):
+    """Stream float64 LQR gains for a contiguous suffix in descending layer order.
 
-    Upstream solves each actuated stage with B=I. Its API returns gains, not
+    Upstream solves each selected stage with B=I. Its API returns gains, not
     cost-to-go, so we carry the latter across one-stage calls. This avoids
-    retaining O(layers * hidden**2) upstream workspaces. Unactuated stages
-    have B=0 and must still propagate their dynamics into earlier gains.
+    retaining O(layers * hidden**2) upstream workspaces. Earlier uncontrolled
+    stages cannot affect suffix gains and are not evaluated.
     The cost update and symmetrization retain the frozen solver's ordering.
     """
     hidden = A.shape[-1]
     eye = torch.eye(hidden, dtype=torch.float64, device=device)
     Q, R = (q * eye).unsqueeze(0), (r * eye).unsqueeze(0)
     S = qf * eye
-    for layer in reversed(range(A.shape[0])):
+    for layer in reversed(range(start_layer, A.shape[0])):
         a = A[layer].to(device, torch.float64)
         F = S @ a
-        K = (time_varying_lqr_noB_mem_efficient(a.unsqueeze(0), Q, R, S)[0]
-             if actuated is None or layer in actuated else torch.zeros_like(a))
+        K = time_varying_lqr_noB_mem_efficient(a.unsqueeze(0), Q, R, S)[0]
         yield layer, K
         S = Q[0] + a.T @ F - F.T @ K
         S = (S + S.T) / 2
@@ -49,7 +48,7 @@ class QwenLQRSteering(UpstreamLQRSteering):
     per state boundary on that boundary's device; K holds actuated layers only.
     """
 
-    def __init__(self, model, A, E, q, r, qf, every=1, steer_last_n_layers=None):
+    def __init__(self, model, A, E, q, r, qf, steer_last_n_layers=None):
         # Do not call the upstream constructor: even A=None allocates dense
         # per-layer Q/R before discarding them. Initialize only the state used
         # by its setpoint hook, registration, and context lifecycle instead.
@@ -59,7 +58,7 @@ class QwenLQRSteering(UpstreamLQRSteering):
         if steer_last_n_layers is not None and not 1 <= steer_last_n_layers <= self.T:
             raise ValueError(f"steer_last_n_layers must be between 1 and {self.T}")
         start = 0 if steer_last_n_layers is None else self.T - steer_last_n_layers
-        self.steered = range(start, self.T, every)
+        self.steered = range(start, self.T)
         devices = [next(layer.parameters()).device for layer in self.layers]
         devices.append(next(model.model.norm.parameters()).device)
         self.device = devices[0]
@@ -71,9 +70,8 @@ class QwenLQRSteering(UpstreamLQRSteering):
             for e, norm, device in zip(self.E, norms, devices)
         ]
         self.K = {}
-        for layer, K in riccati(A, q, r, qf, self.device, self.steered):
-            if layer in self.steered:
-                self.K[layer] = K.to(device=devices[layer], dtype=torch.float32)
+        for layer, K in riccati(A, q, r, qf, self.device, start_layer=start):
+            self.K[layer] = K.to(device=devices[layer], dtype=torch.float32)
         # Real upstream logging buffers copy the final state/control vector,
         # rather than keeping views that retain entire replay activations.
         self.X = torch.empty(self.T, E.shape[-1], device=self.device, dtype=torch.float32)
@@ -163,11 +161,11 @@ class DriftLQRSteering(QwenLQRSteering):
     actuated blocks. Evaluate replay metrics before reusing/changing the controller.
     """
 
-    def __init__(self, model, nominal, A, E, q, r, qf, drift_weight=0.0, every=1,
+    def __init__(self, model, nominal, A, E, q, r, qf, drift_weight=0.0,
                  steer_last_n_layers=None):
         if nominal is model or nominal.base_model is model.base_model:
             raise ValueError("nominal must be a separate, unsteered model instance")
-        super().__init__(model, A, E, q, r, qf, every=every, steer_last_n_layers=steer_last_n_layers)
+        super().__init__(model, A, E, q, r, qf, steer_last_n_layers=steer_last_n_layers)
         self.nominal = nominal
         self.nominal_layers = list(nominal.model.layers)
         if len(self.nominal_layers) != len(self.layers):
@@ -284,12 +282,14 @@ def _token_mean(values, valid):
     return torch.where(keep, values, 0).sum(dim=1) / keep.sum(dim=1)
 
 
-def completion_metrics(tr):
+def completion_metrics(tr, *, per_layer=False):
     """Per-completion token means at the final pre-norm state.
 
     along_v: v^T dx; change: |dx| / |x_unsteered|;
     orthogonal: |dx off v| / |x_unsteered|;
     push_energy: sum_l |u_l|^2 / |x_l|^2, using unquantized FP32 controls.
+    With per_layer=True, layer_push_energy contains the token-mean energy at
+    each block, with zeros for the uncontrolled prefix.
     """
     valid = tr["valid"]
     v = tr["controller"].E_unit[-1].to(tr["steered"].device)
@@ -299,15 +299,39 @@ def completion_metrics(tr):
     off = dx - along[..., None] * v
     energy = torch.zeros(valid.shape, device=valid.device)
     controller = tr["controller"]
+    layer_energy = energy.new_zeros(len(valid), controller.T) if per_layer else None
     controller.lmbda = tr["lmbda"]
     for layer in controller.steered:
         x = tr["steered"][layer].float()
         u = controller.push(layer, x)
-        energy += u.square().sum(-1) / x.square().sum(-1)
+        contribution = u.square().sum(-1) / x.square().sum(-1)
+        energy += contribution
+        if per_layer:
+            layer_energy[:, layer] = _token_mean(contribution, valid)
     columns = {
         "along_v": _token_mean(along, valid),
         "change": _token_mean(dx.norm(dim=-1) / reference, valid),
         "orthogonal": _token_mean(off.norm(dim=-1) / reference, valid),
         "push_energy": _token_mean(energy, valid),
     }
-    return [{name: values[i].item() for name, values in columns.items()} for i in range(len(valid))]
+    rows = [{name: values[i].item() for name, values in columns.items()} for i in range(len(valid))]
+    if per_layer:
+        for row, values in zip(rows, layer_energy.cpu().tolist()):
+            row["layer_push_energy"] = values
+    return rows
+
+
+def alignment_metrics(tr):
+    """Token-mean shares of squared final-state change; zero changes have no direction."""
+    delta = tr["steered"][-1].float() - tr["nominal"][-1].float()
+    v = tr["controller"].E_unit[-1].to(delta.device)
+    along = delta @ v
+    squared_change = delta.square().sum(-1)
+    along_fraction = (along.square() / squared_change).clamp(0, 1)
+    columns = {
+        "change": _token_mean(squared_change.sqrt() / tr["nominal"][-1].float().norm(dim=-1), tr["valid"]),
+        "along_v": _token_mean(along, tr["valid"]),
+        "along_fraction": _token_mean(along_fraction, tr["valid"]),
+        "off_fraction": _token_mean(1 - along_fraction, tr["valid"]),
+    }
+    return [{name: values[i].item() for name, values in columns.items()} for i in range(len(along))]
